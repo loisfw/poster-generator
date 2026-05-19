@@ -21,12 +21,12 @@ tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 # SESSION STATE
 # -----------------------
 
-if "generated" not in st.session_state:
-    st.session_state.generated = False
 if "png" not in st.session_state:
     st.session_state.png = None
 if "pdf" not in st.session_state:
     st.session_state.pdf = None
+if "generated" not in st.session_state:
+    st.session_state.generated = False
 
 # -----------------------
 # FONT
@@ -39,7 +39,7 @@ def load_font(size):
         return ImageFont.load_default()
 
 # -----------------------
-# TEXT WRAP (FIXED)
+# TEXT WRAP (SAFE)
 # -----------------------
 
 def wrap_text(draw, text, font, max_width):
@@ -62,7 +62,7 @@ def wrap_text(draw, text, font, max_width):
     return lines
 
 # -----------------------
-# DESIGN TAB
+# TAB 2 - DESIGN
 # -----------------------
 
 with tab2:
@@ -85,7 +85,7 @@ with tab2:
     text_scale = st.slider("Text size", 0.7, 1.5, 1.0)
 
 # -----------------------
-# MAIN TAB
+# TAB 1
 # -----------------------
 
 with tab1:
@@ -99,13 +99,12 @@ with tab1:
         accept_multiple_files=True
     )
 
-    colA, colB = st.columns([1, 1])
+    colA, colB = st.columns([1,1])
 
-    with colA:
-        generate = st.button("Generate Poster", key="generate_btn")
+    generate = colA.button("Generate Poster", key="generate_btn")
 
 # -----------------------
-# RENDER ENGINE (FIXED OVERFLOW)
+# RENDER ENGINE
 # -----------------------
 
 def render(df, images_dict):
@@ -119,11 +118,12 @@ def render(df, images_dict):
     draw = ImageDraw.Draw(poster)
 
     title_font = load_font(int(title_size * text_scale))
-    name_font = load_font(int(22 * text_scale))
+    name_font = load_font(int(24 * text_scale))
     meta_font = load_font(int(16 * text_scale))
 
     y_offset = 40
 
+    # title
     if show_title:
         w = draw.textlength(title_text, font=title_font)
         draw.text(((width - w) / 2, y_offset), title_text, fill=title_colour, font=title_font)
@@ -151,34 +151,31 @@ def render(df, images_dict):
             poster.paste(img, (x, y))
 
         text_y = y + CARD_IMG_HEIGHT + 8
-        max_text_width = CARD_IMG_WIDTH
 
-        # NAME (WRAPPED + CONTAINED)
-        for line in wrap_text(draw, row["fullname"], name_font, max_text_width):
+        # FULL NAME (BIGGER + SAFE WRAP)
+        for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
             draw.text((x, text_y), line, fill=body_colour, font=name_font)
-            text_y += 22
+            text_y += 28
 
-        text_y += 4  # spacing between name and tag (FIX YOU ASKED FOR)
+        text_y += 6  # 🔥 extra spacing so it NEVER touches tag
 
-        # META
         draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=meta_font)
-        text_y += 18
+        text_y += 20
 
         draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=meta_font)
-        text_y += 18
+        text_y += 20
 
         draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=meta_font)
-        text_y += 18
+        text_y += 20
 
         draw.text((x, text_y), f"Age: {row['age']} | Sex: {row['sex']}", fill=body_colour, font=meta_font)
-        text_y += 18
 
-        # NOTES (WRAPPED FIXED)
-        notes = str(row.get("notes", "")).strip()
-        if notes and notes.lower() != "nan":
-            for line in wrap_text(draw, notes, meta_font, max_text_width):
+        # NOTES (FIXED - WAS SOMETIMES DROPPING)
+        if "notes" in row and str(row["notes"]).strip().lower() not in ["", "nan"]:
+            text_y += 18
+            for line in wrap_text(draw, row["notes"], meta_font, CARD_IMG_WIDTH):
                 draw.text((x, text_y), line, fill=body_colour, font=meta_font)
-                text_y += 16
+                text_y += 18
 
     return poster
 
@@ -201,11 +198,10 @@ if csv_file and image_files:
     st.image(preview)
 
     # -----------------------
-    # GENERATE + STORE FILES
+    # GENERATE (STATE SAFE)
     # -----------------------
 
     if generate:
-
         png_buffer = BytesIO()
         pdf_buffer = BytesIO()
 
@@ -219,78 +215,24 @@ if csv_file and image_files:
         st.session_state.pdf = pdf_buffer
         st.session_state.generated = True
 
-        st.success("Poster generated!")
-
-    # -----------------------
-    # DOWNLOAD BUTTONS (NOW ALWAYS VISIBLE AFTER GENERATE)
-    # -----------------------
-
-    if st.session_state.generated:
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.download_button(
-                "Download PNG",
-                data=st.session_state.png,
-                file_name="poster.png",
-                mime="image/png"
-            )
-
-        with col2:
-            st.download_button(
-                "Download PDF",
-                data=st.session_state.pdf,
-                file_name="poster.pdf",
-                mime="application/pdf"
-            )
+        st.success("Generated successfully")
 
 # -----------------------
-# HELP TAB (RESTORED + YOUR STYLE KEPT)
+# DOWNLOADS (ALWAYS VISIBLE AFTER GENERATE)
 # -----------------------
 
-with tab3:
-
-    st.markdown("""
-## 📘 How to use this tool
-
-This tool generates structured posters from a CSV file and uploaded images.
-
-### Steps:
-1. Upload CSV
-2. Upload images
-3. Adjust settings
-4. Generate poster
-5. Download PNG or PDF
-
----
-
-## 📄 Required fields
-
-Each row represents ONE person.
-
-### Required fields:
-- filename → image file name
-- fullname → full name
-- tag → ID reference
-- missing_since → last seen date
-- location → last known location
-- age → age
-- sex → gender
-- notes → optional extra details
-
----
-
-## 📥 Download template
-
-Use this to structure your data correctly.
-""")
+if st.session_state.generated:
 
     st.download_button(
-        "Download CSV Template",
-        data="""filename,fullname,tag,missing_since,location,age,sex,notes
-example.png,John Doe,ID001,2025-01-01,London,34,Male,Last seen wearing dark jacket
-""",
-        file_name="template.csv",
-        mime="text/csv"
+        "Download PNG",
+        data=st.session_state.png,
+        file_name="poster.png",
+        mime="image/png"
+    )
+
+    st.download_button(
+        "Download PDF",
+        data=st.session_state.pdf,
+        file_name="poster.pdf",
+        mime="application/pdf"
     )
