@@ -19,13 +19,7 @@ PADDING = 18
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
 # -----------------------
-# STATE
-# -----------------------
-
-font_file = None  # keeps compatibility with your design tab
-
-# -----------------------
-# HELPERS
+# FONT SYSTEM (StackSans SAFE)
 # -----------------------
 
 def load_font(size, weight="regular"):
@@ -37,11 +31,13 @@ def load_font(size, weight="regular"):
     }
 
     try:
-        path = font_map.get(weight, font_map["regular"])
-        return ImageFont.truetype(path, size)
-    except Exception:
+        return ImageFont.truetype(font_map.get(weight, font_map["regular"]), size)
+    except:
         return ImageFont.load_default()
 
+# -----------------------
+# TEXT WRAP
+# -----------------------
 
 def wrap_text(draw, text, font, max_width):
     words = str(text).split()
@@ -61,7 +57,6 @@ def wrap_text(draw, text, font, max_width):
         lines.append(current)
 
     return lines
-
 
 # -----------------------
 # TAB 2 - DESIGN
@@ -87,7 +82,6 @@ with tab2:
 
     text_scale = st.slider("Text size (overall scaling)", 0.7, 1.5, 1.0)
 
-
 # -----------------------
 # TAB 1
 # -----------------------
@@ -106,20 +100,12 @@ with tab1:
     generate = st.button("Generate Poster")
 
 # -----------------------
-# CORE RENDER ENGINE
+# RENDER ENGINE
 # -----------------------
 
 def render(df, images_dict):
 
     df = df.copy()
-
-    if "group_id" not in df.columns:
-        df["group_id"] = ""
-
-    df["group_id"] = df["group_id"].fillna("").astype(str)
-
-    empty = df["group_id"].str.strip() == ""
-    df.loc[empty, "group_id"] = "single_" + df.index[empty].astype(str)
 
     rows = (len(df) + COLS - 1) // COLS
 
@@ -129,10 +115,7 @@ def render(df, images_dict):
     poster = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(poster)
 
-    # -----------------------
-    # FONTS (FIXED HIERARCHY)
-    # -----------------------
-
+    # fonts
     title_font = load_font(int(title_size * text_scale), "bold")
     name_font = load_font(int(24 * text_scale), "bold")
     meta_font = load_font(int(16 * text_scale), "regular")
@@ -155,11 +138,10 @@ def render(df, images_dict):
             draw.text(((width - sw) / 2, y_offset - 50), subtitle_text, fill=title_colour, font=sub_font)
 
     # -----------------------
-    # GRID
+    # GRID POSITIONS
     # -----------------------
 
     positions = {}
-
     for i in range(len(df)):
         col = i % COLS
         row = i // COLS
@@ -186,11 +168,15 @@ def render(df, images_dict):
         text_y = y + CARD_IMG_HEIGHT + 6
 
         # NAME
-        for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
+        name_lines = wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH)
+        for line in name_lines:
             draw.text((x, text_y), line, fill=body_colour, font=name_font)
-            text_y += 24
+            text_y += 26
 
-        # META (clean spacing restored)
+        # IMPORTANT GAP (fix overlap)
+        text_y += 14
+
+        # META
         draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=meta_font)
         text_y += 22
 
@@ -206,18 +192,17 @@ def render(df, images_dict):
         draw.text((x, text_y), f"Sex: {row['sex']}", fill=body_colour, font=meta_font)
         text_y += 26
 
-        # NOTES (fixed + reliable)
-        notes_text = str(row.get("notes", "")).strip()
-        if notes_text and notes_text.lower() != "nan":
-            for line in wrap_text(draw, notes_text, notes_font, CARD_IMG_WIDTH):
+        # NOTES
+        notes = str(row.get("notes", "")).strip()
+        if notes and notes.lower() != "nan":
+            for line in wrap_text(draw, notes, notes_font, CARD_IMG_WIDTH):
                 draw.text((x, text_y), line, fill=body_colour, font=notes_font)
                 text_y += 18
 
     return poster
 
-
 # -----------------------
-# LOAD + OUTPUT
+# LOAD DATA
 # -----------------------
 
 if csv_file and image_files:
@@ -231,34 +216,33 @@ if csv_file and image_files:
 
     preview = render(df, images_dict)
 
-    with tab1:
-        st.subheader("Live Preview")
-        st.image(preview)
+    st.subheader("Live Preview")
+    st.image(preview)
 
-    with tab2:
-        st.subheader("Live Preview")
-        st.image(preview)
+    # -----------------------
+    # GENERATE + DOWNLOADS (FIXED)
+    # -----------------------
 
-    with tab1:
+    if generate:
 
-        if generate:
+        os.makedirs("output", exist_ok=True)
 
-            os.makedirs("output", exist_ok=True)
+        png_path = "output/poster.png"
+        pdf_path = "output/poster.pdf"
 
-            png_path = "output/poster.png"
-            pdf_path = "output/poster.pdf"
+        preview.save(png_path)
+        preview.convert("RGB").save(pdf_path, "PDF", resolution=300)
 
-            preview.save(png_path)
-            preview.convert("RGB").save(pdf_path, "PDF", resolution=300)
+        st.success("Poster generated!")
 
-            st.success("Poster generated!")
+        with open(png_path, "rb") as f:
+            st.download_button("Download PNG", f, file_name="poster.png")
 
-            st.download_button("Download PNG", open(png_path, "rb"), file_name="poster.png")
-            st.download_button("Download PDF", open(pdf_path, "rb"), file_name="poster.pdf")
-
+        with open(pdf_path, "rb") as f:
+            st.download_button("Download PDF", f, file_name="poster.pdf")
 
 # -----------------------
-# HELP TAB (UNCHANGED EXACTLY)
+# HELP TAB (UNCHANGED)
 # -----------------------
 
 with tab3:
@@ -313,10 +297,6 @@ Each row represents ONE person.
         """filename,fullname,tag,missing_since,location,age,sex,notes,group_id,group_note
 matthewb.png,Matthew B,NCIC#001,2025-06-02,Atlanta,12,Male,Believed to be wearing dark hoodie,group_1,These individuals are believed to be travelling together.
 zara.png,Zara L,NCIC#002,2025-06-02,Atlanta,10,Female,Believed to be wearing pink jacket,group_1,These individuals are believed to be travelling together.
-nadine.png,Nadine Lindo,NCIC#003,2025-06-02,Atlanta,34,Female,No additional details available,group_1,These individuals are believed to be travelling together.
-solo.png,Example Solo,NCIC#004,2025-06-01,Atlanta,17,Male,Believed to be wearing red coat,,
-pair1.png,Example Pair A,NCIC#005,2025-06-01,Atlanta,16,Female,Last seen near station,group_2,Pair travelling together.
-pair2.png,Example Pair B,NCIC#006,2025-06-01,Atlanta,16,Male,Last seen near station,group_2,Pair travelling together.
 """,
         file_name="template.csv"
     )
