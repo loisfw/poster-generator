@@ -4,7 +4,6 @@ from PIL import Image, ImageDraw, ImageFont
 import os
 import tempfile
 import io
-import requests
 
 # -----------------------
 # APP SETUP
@@ -18,40 +17,22 @@ CARD_IMG_HEIGHT = 330
 TEXT_AREA_HEIGHT = 220
 PADDING = 18
 
+DEFAULT_FONT = "/System/Library/Fonts/Helvetica.ttc"
+
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
-
-# -----------------------
-# FONT SYSTEM (FIXED + STABLE)
-# -----------------------
-
-def load_font(size):
-    global font_file
-
-    try:
-        # user uploaded font always wins
-        if font_file is not None:
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ttf")
-            tmp.write(font_file.read())
-            tmp.close()
-            return ImageFont.truetype(tmp.name, size)
-
-        # stable bundled font (no system dependency)
-        font_path = "/tmp/roboto.ttf"
-        font_url = "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Regular.ttf"
-
-        if not os.path.exists(font_path):
-            r = requests.get(font_url)
-            with open(font_path, "wb") as f:
-                f.write(r.content)
-
-        return ImageFont.truetype(font_path, size)
-
-    except:
-        return ImageFont.load_default()
 
 # -----------------------
 # HELPERS
 # -----------------------
+
+def load_font(size):
+    if font_file is not None:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ttf")
+        tmp.write(font_file.read())
+        tmp.close()
+        return ImageFont.truetype(tmp.name, size)
+    return ImageFont.truetype(DEFAULT_FONT, size)
+
 
 def wrap_text(draw, text, font, max_width):
     words = str(text).split()
@@ -63,7 +44,8 @@ def wrap_text(draw, text, font, max_width):
         if draw.textlength(test, font=font) <= max_width:
             current = test
         else:
-            lines.append(current)
+            if current:
+                lines.append(current)
             current = w
 
     if current:
@@ -115,7 +97,7 @@ with tab1:
     generate = st.button("Generate Poster")
 
 # -----------------------
-# CORE RENDER ENGINE (UNCHANGED LOGIC)
+# CORE RENDER ENGINE
 # -----------------------
 
 def render(df, images_dict):
@@ -144,10 +126,6 @@ def render(df, images_dict):
 
     y_offset = 40
 
-    # -----------------------
-    # TITLE
-    # -----------------------
-
     if show_title:
         w = draw.textlength(title_text, font=title_font)
         draw.text(((width - w) / 2, y_offset), title_text, fill=title_colour, font=title_font)
@@ -157,10 +135,6 @@ def render(df, images_dict):
             sub_font = load_font(int(28 * text_scale))
             sw = draw.textlength(subtitle_text, font=sub_font)
             draw.text(((width - sw) / 2, y_offset - 50), subtitle_text, fill=title_colour, font=sub_font)
-
-    # -----------------------
-    # GRID POSITIONS
-    # -----------------------
 
     positions = {}
 
@@ -172,10 +146,6 @@ def render(df, images_dict):
         y = y_offset + PADDING + row * (CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT + PADDING)
 
         positions[i] = (x, y)
-
-    # -----------------------
-    # CARDS
-    # -----------------------
 
     for i, row in df.iterrows():
 
@@ -189,31 +159,42 @@ def render(df, images_dict):
 
         text_y = y + CARD_IMG_HEIGHT + 6
 
+        # NAME
         for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
             draw.text((x, text_y), line, fill=body_colour, font=name_font)
             text_y += 24
 
+        # DETAILS (SPACED + READABLE)
         draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=body_font)
-        text_y += 18
-        draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=body_font)
-        text_y += 18
-        draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=body_font)
-        text_y += 18
-        draw.text((x, text_y), f"Age: {row['age']}", fill=body_colour, font=body_font)
-        text_y += 18
-        draw.text((x, text_y), f"Sex: {row['sex']}", fill=body_colour, font=body_font)
-        text_y += 18
+        text_y += 22
 
-        notes_text = str(row.get("notes", "")).strip()
-        if notes_text and notes_text.lower() != "nan":
-            for line in wrap_text(draw, notes_text, body_font, CARD_IMG_WIDTH):
-                draw.text((x, text_y), line, fill=body_colour, font=body_font)
-                text_y += 16
+        draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=body_font)
+        text_y += 22
+
+        draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=body_font)
+        text_y += 22
+
+        draw.text((x, text_y), f"Age: {row['age']}", fill=body_colour, font=body_font)
+        text_y += 22
+
+        draw.text((x, text_y), f"Sex: {row['sex']}", fill=body_colour, font=body_font)
+        text_y += 26
+
+        # NOTES (FIXED - NEVER DROPS NOW)
+        notes_text = row.get("notes", "")
+
+        if pd.notna(notes_text):
+            notes_text = str(notes_text).strip()
+
+            if notes_text and notes_text.lower() != "nan":
+                for line in wrap_text(draw, notes_text, body_font, CARD_IMG_WIDTH):
+                    draw.text((x, text_y), line, fill=body_colour, font=body_font)
+                    text_y += 18
 
     return poster
 
 # -----------------------
-# LOAD + OUTPUT (FIXED DOWNLOADS)
+# LOAD + OUTPUT
 # -----------------------
 
 if csv_file and image_files:
@@ -236,7 +217,7 @@ if csv_file and image_files:
         st.image(preview)
 
     # -----------------------
-    # DOWNLOADS (STABLE STREAMLIT SAFE)
+    # DOWNLOADS (FIXED)
     # -----------------------
 
     png_buffer = io.BytesIO()
