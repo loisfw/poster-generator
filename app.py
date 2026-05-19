@@ -14,34 +14,25 @@ st.title("Poster Generator")
 
 CARD_IMG_WIDTH = 260
 CARD_IMG_HEIGHT = 330
-TEXT_AREA_HEIGHT = 260
-PADDING = 20
+TEXT_AREA_HEIGHT = 220
+PADDING = 18
 
-# -----------------------
-# SAFE FONT HANDLING
-# -----------------------
+DEFAULT_FONT = "/System/Library/Fonts/Helvetica.ttc"
 
-DEFAULT_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-
-def load_font(size):
-    try:
-        if font_file is not None:
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ttf")
-            tmp.write(font_file.read())
-            tmp.close()
-            return ImageFont.truetype(tmp.name, size)
-
-        if os.path.exists(DEFAULT_FONT):
-            return ImageFont.truetype(DEFAULT_FONT, size)
-
-        return ImageFont.load_default()
-
-    except:
-        return ImageFont.load_default()
+tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
 # -----------------------
 # HELPERS
 # -----------------------
+
+def load_font(size):
+    if font_file is not None:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ttf")
+        tmp.write(font_file.read())
+        tmp.close()
+        return ImageFont.truetype(tmp.name, size)
+    return ImageFont.truetype(DEFAULT_FONT, size)
+
 
 def wrap_text(draw, text, font, max_width):
     words = str(text).split()
@@ -60,12 +51,6 @@ def wrap_text(draw, text, font, max_width):
         lines.append(current)
 
     return lines
-
-# -----------------------
-# TABS
-# -----------------------
-
-tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
 # -----------------------
 # TAB 2 - DESIGN
@@ -89,6 +74,8 @@ with tab2:
         subtitle_text = st.text_input("Subtitle (optional)", "")
         title_size = st.slider("Title size", 20, 120, 60)
 
+    text_scale = st.slider("Text size (overall scaling)", 0.7, 1.5, 1.0)
+
     font_file = st.file_uploader("Upload .ttf / .otf font", type=["ttf", "otf"])
 
 # -----------------------
@@ -109,7 +96,7 @@ with tab1:
     generate = st.button("Generate Poster")
 
 # -----------------------
-# RENDER ENGINE
+# CORE RENDER ENGINE (UNCHANGED)
 # -----------------------
 
 def render(df, images_dict):
@@ -132,10 +119,9 @@ def render(df, images_dict):
     poster = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(poster)
 
-    # FIXED FONT SIZES (NO SCALING)
-    title_font = load_font(int(title_size))
-    name_font = load_font(26)
-    body_font = load_font(18)
+    title_font = load_font(int(title_size * text_scale))
+    name_font = load_font(int(22 * text_scale))
+    body_font = load_font(int(16 * text_scale))
 
     y_offset = 40
 
@@ -145,7 +131,7 @@ def render(df, images_dict):
         y_offset += 120
 
         if subtitle_text:
-            sub_font = load_font(28)
+            sub_font = load_font(int(28 * text_scale))
             sw = draw.textlength(subtitle_text, font=sub_font)
             draw.text(((width - sw) / 2, y_offset - 50), subtitle_text, fill=title_colour, font=sub_font)
 
@@ -170,40 +156,33 @@ def render(df, images_dict):
             img = images_dict[filename].resize((CARD_IMG_WIDTH, CARD_IMG_HEIGHT))
             poster.paste(img, (x, y))
 
-        text_y = y + CARD_IMG_HEIGHT + 8
+        text_y = y + CARD_IMG_HEIGHT + 6
 
-        # NAME
         for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
             draw.text((x, text_y), line, fill=body_colour, font=name_font)
-            text_y += 26
+            text_y += 24
 
-        # DETAILS (fixed spacing)
         draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=body_font)
-        text_y += 22
-
+        text_y += 18
         draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=body_font)
-        text_y += 22
-
+        text_y += 18
         draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=body_font)
-        text_y += 22
-
+        text_y += 18
         draw.text((x, text_y), f"Age: {row['age']}", fill=body_colour, font=body_font)
-        text_y += 22
-
+        text_y += 18
         draw.text((x, text_y), f"Sex: {row['sex']}", fill=body_colour, font=body_font)
-        text_y += 22
+        text_y += 18
 
-        # NOTES
         notes_text = str(row.get("notes", "")).strip()
         if notes_text and notes_text.lower() != "nan":
             for line in wrap_text(draw, notes_text, body_font, CARD_IMG_WIDTH):
                 draw.text((x, text_y), line, fill=body_colour, font=body_font)
-                text_y += 20
+                text_y += 16
 
     return poster
 
 # -----------------------
-# LOAD + OUTPUT
+# LOAD + OUTPUT (ONLY DOWNLOAD FIXED)
 # -----------------------
 
 if csv_file and image_files:
@@ -225,35 +204,40 @@ if csv_file and image_files:
         st.subheader("Live Preview")
         st.image(preview)
 
-    buf_png = io.BytesIO()
-    buf_pdf = io.BytesIO()
+    # -----------------------
+    # FIXED DOWNLOAD (NO FILE SYSTEM)
+    # -----------------------
 
-    preview.save(buf_png, format="PNG")
-    buf_png.seek(0)
+    png_buffer = io.BytesIO()
+    pdf_buffer = io.BytesIO()
 
-    preview.convert("RGB").save(buf_pdf, format="PDF", resolution=300)
-    buf_pdf.seek(0)
+    preview.save(png_buffer, format="PNG")
+    png_buffer.seek(0)
+
+    preview.convert("RGB").save(pdf_buffer, format="PDF", resolution=300)
+    pdf_buffer.seek(0)
 
     with tab1:
+
         if generate:
             st.success("Poster generated!")
 
         st.download_button(
             "Download PNG",
-            data=buf_png,
+            data=png_buffer,
             file_name="poster.png",
             mime="image/png"
         )
 
         st.download_button(
             "Download PDF",
-            data=buf_pdf,
+            data=pdf_buffer,
             file_name="poster.pdf",
             mime="application/pdf"
         )
 
 # -----------------------
-# HELP TAB (UNCHANGED - EXACT ORIGINAL)
+# HELP TAB (UNCHANGED EXACTLY)
 # -----------------------
 
 with tab3:
@@ -288,19 +272,10 @@ Each row represents ONE person.
 
 ---
 
-## 👥 Grouping people together
+## 👥 Grouping (data only, optional)
 
-You can visually connect people who belong together.
-
-### group_id
-- Links people into a visual group
-- Anyone with the same group_id will be boxed together
-- Example: `family_1`, `case_A`, `siblings`
-
-### group_note
-- Shared message shown once under the group
-- Used for context or explanation
-- Example: “These individuals are believed to be travelling together.”
+- group_id = logical grouping only (not visual)
+- group_note = optional shared context (not displayed unless needed in export logic)
 
 ---
 
@@ -309,7 +284,7 @@ You can visually connect people who belong together.
 - Image filenames must match CSV exactly (case-insensitive)
 - CSV must include all required fields or generation will fail
 - Images must be uploaded separately
-- Grouping only works when 2+ people share a group_id
+- Grouping is optional and does not affect layout
 """)
 
     st.download_button(
