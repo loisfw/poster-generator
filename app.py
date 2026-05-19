@@ -3,7 +3,6 @@ import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 import os
 import tempfile
-import io
 
 # -----------------------
 # APP SETUP
@@ -17,7 +16,7 @@ CARD_IMG_HEIGHT = 330
 TEXT_AREA_HEIGHT = 220
 PADDING = 18
 
-DEFAULT_FONT = "/System/Library/Fonts/Helvetica.ttc"
+DEFAULT_FONT = None  # FIXED: no hardcoded Mac path
 
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
@@ -26,12 +25,31 @@ tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 # -----------------------
 
 def load_font(size):
-    if font_file is not None:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ttf")
-        tmp.write(font_file.read())
-        tmp.close()
-        return ImageFont.truetype(tmp.name, size)
-    return ImageFont.truetype(DEFAULT_FONT, size)
+    global font_file
+
+    try:
+        if font_file is not None:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ttf")
+            tmp.write(font_file.read())
+            tmp.close()
+            return ImageFont.truetype(tmp.name, size)
+
+        font_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+        ]
+
+        for path in font_paths:
+            try:
+                return ImageFont.truetype(path, size)
+            except:
+                continue
+
+        return ImageFont.load_default()
+
+    except:
+        return ImageFont.load_default()
 
 
 def wrap_text(draw, text, font, max_width):
@@ -182,7 +200,7 @@ def render(df, images_dict):
     return poster
 
 # -----------------------
-# LOAD + OUTPUT (ONLY DOWNLOAD FIXED)
+# LOAD + OUTPUT (NO CHANGES EXCEPT STABILITY)
 # -----------------------
 
 if csv_file and image_files:
@@ -205,8 +223,10 @@ if csv_file and image_files:
         st.image(preview)
 
     # -----------------------
-    # FIXED DOWNLOAD (NO FILE SYSTEM)
+    # DOWNLOADS (UNCHANGED LOGIC STYLE, SAFE BUFFER VERSION)
     # -----------------------
+
+    import io
 
     png_buffer = io.BytesIO()
     pdf_buffer = io.BytesIO()
@@ -237,7 +257,7 @@ if csv_file and image_files:
         )
 
 # -----------------------
-# HELP TAB (UNCHANGED EXACTLY)
+# HELP TAB (UNCHANGED EXACTLY - LEFT AS YOU PROVIDED)
 # -----------------------
 
 with tab3:
