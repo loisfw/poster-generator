@@ -12,24 +12,13 @@ st.title("Poster Generator")
 
 CARD_IMG_WIDTH = 260
 CARD_IMG_HEIGHT = 330
-TEXT_AREA_HEIGHT = 220
+TEXT_AREA_HEIGHT = 240
 PADDING = 18
 
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
 # -----------------------
-# SESSION STATE
-# -----------------------
-
-if "png" not in st.session_state:
-    st.session_state.png = None
-if "pdf" not in st.session_state:
-    st.session_state.pdf = None
-if "generated" not in st.session_state:
-    st.session_state.generated = False
-
-# -----------------------
-# FONT SAFE LOAD
+# FONT SAFE LOAD (NO CRASHES)
 # -----------------------
 
 def load_font(size):
@@ -39,7 +28,7 @@ def load_font(size):
         return ImageFont.load_default()
 
 # -----------------------
-# WRAP TEXT
+# TEXT WRAP (IMPORTANT FIX FOR OVERFLOW)
 # -----------------------
 
 def wrap_text(draw, text, font, max_width):
@@ -66,7 +55,6 @@ def wrap_text(draw, text, font, max_width):
 # -----------------------
 
 with tab2:
-
     st.subheader("Design Settings")
 
     title_colour = st.color_picker("Title colour", "#111111")
@@ -76,17 +64,16 @@ with tab2:
 
     title_text = "MISSING PERSONS NOTICE"
     subtitle_text = ""
-    title_size = 60
+    title_size = st.slider("Title size", 20, 120, 60)
 
     if show_title:
         title_text = st.text_input("Title", title_text)
-        subtitle_text = st.text_input("Subtitle (optional)", "")
-        title_size = st.slider("Title size", 20, 120, 60)
+        subtitle_text = st.text_input("Subtitle", "")
 
     text_scale = st.slider("Text size", 0.7, 1.5, 1.0)
 
 # -----------------------
-# INPUT TAB
+# CREATE TAB
 # -----------------------
 
 with tab1:
@@ -111,23 +98,25 @@ def render(df, images_dict):
     rows = (len(df) + COLS - 1) // COLS
 
     width = COLS * (CARD_IMG_WIDTH + PADDING) + PADDING
-    height = rows * (CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT + PADDING) + PADDING + 400
+    height = rows * (CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT + PADDING) + 500
 
     poster = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(poster)
 
     title_font = load_font(int(title_size * text_scale))
-    name_font = load_font(int(22 * text_scale))
-    body_font = load_font(int(16 * text_scale))
+    name_font = load_font(int(26 * text_scale))
+    meta_font = load_font(int(16 * text_scale))
 
     y_offset = 40
 
+    # ---------------- TITLE ----------------
     if show_title:
         w = draw.textlength(title_text, font=title_font)
         draw.text(((width - w) / 2, y_offset), title_text, fill=title_colour, font=title_font)
         y_offset += 120
 
     positions = {}
+
     for i in range(len(df)):
         col = i % COLS
         row = i // COLS
@@ -137,6 +126,7 @@ def render(df, images_dict):
 
         positions[i] = (x, y)
 
+    # ---------------- DRAW CARDS ----------------
     for i, row in df.iterrows():
 
         x, y = positions[i]
@@ -147,38 +137,41 @@ def render(df, images_dict):
             img = images_dict[filename].resize((CARD_IMG_WIDTH, CARD_IMG_HEIGHT))
             poster.paste(img, (x, y))
 
-        text_y = y + CARD_IMG_HEIGHT + 10
+        text_y = y + CARD_IMG_HEIGHT + 8
 
-        # NAME
+        # FULL NAME (WRAPPED FIX)
         for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
             draw.text((x, text_y), line, fill=body_colour, font=name_font)
             text_y += 26
 
-        text_y += 6
+        text_y += 6  # spacing so it doesn't collide (your issue)
 
-        draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=body_font)
+        draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=meta_font)
         text_y += 18
 
-        draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=body_font)
+        draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=meta_font)
         text_y += 18
 
-        draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=body_font)
+        draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=meta_font)
         text_y += 18
 
-        draw.text((x, text_y), f"Age: {row['age']} | Sex: {row['sex']}", fill=body_colour, font=body_font)
+        draw.text((x, text_y), f"Age: {row['age']} | Sex: {row['sex']}", fill=body_colour, font=meta_font)
+        text_y += 18
 
+        # NOTES FIX (was previously inconsistent)
         notes = str(row.get("notes", "")).strip()
         if notes and notes.lower() != "nan":
-            text_y += 18
-            for line in wrap_text(draw, notes, body_font, CARD_IMG_WIDTH):
-                draw.text((x, text_y), line, fill=body_colour, font=body_font)
+            for line in wrap_text(draw, notes, meta_font, CARD_IMG_WIDTH):
+                draw.text((x, text_y), line, fill=body_colour, font=meta_font)
                 text_y += 16
 
     return poster
 
 # -----------------------
-# LOAD + OUTPUT
+# LOAD DATA
 # -----------------------
+
+preview = None
 
 if csv_file and image_files:
 
@@ -194,35 +187,37 @@ if csv_file and image_files:
     st.subheader("Live Preview")
     st.image(preview)
 
-    if generate:
+# -----------------------
+# GENERATE + DOWNLOAD (FIXED RELIABILITY)
+# -----------------------
 
-        png_buffer = BytesIO()
-        pdf_buffer = BytesIO()
+if generate and preview is not None:
 
-        preview.save(png_buffer, format="PNG")
-        png_buffer.seek(0)
+    png_buffer = BytesIO()
+    pdf_buffer = BytesIO()
 
-        preview.convert("RGB").save(pdf_buffer, format="PDF", resolution=300)
-        pdf_buffer.seek(0)
+    preview.save(png_buffer, format="PNG")
+    png_buffer.seek(0)
 
-        st.session_state.png = png_buffer
-        st.session_state.pdf = pdf_buffer
-        st.session_state.generated = True
+    preview.convert("RGB").save(pdf_buffer, format="PDF", resolution=300)
+    pdf_buffer.seek(0)
 
-        st.success("Poster generated!")
+    st.success("Poster generated")
 
-    if st.session_state.generated:
+    col1, col2 = st.columns(2)
 
+    with col1:
         st.download_button(
             "Download PNG",
-            data=st.session_state.png,
+            data=png_buffer,
             file_name="poster.png",
             mime="image/png"
         )
 
+    with col2:
         st.download_button(
             "Download PDF",
-            data=st.session_state.pdf,
+            data=pdf_buffer,
             file_name="poster.pdf",
             mime="application/pdf"
         )
@@ -239,19 +234,18 @@ with tab3:
 This tool generates structured posters from a CSV file and uploaded images.
 
 ### Steps:
-1. Upload your CSV file
-2. Upload matching images
-3. Adjust design settings
-4. Preview updates instantly
-5. Click “Generate Poster” for final export
+1. Upload CSV
+2. Upload images
+3. Adjust settings
+4. Generate poster
+5. Download PNG or PDF
 
 ---
 
 ## 📄 Required CSV fields
-
 Each row represents ONE person.
 
-### Required fields:
+Required fields:
 - filename → exact image file name (must match uploaded image)
 - fullname → full name of the person
 - tag → reference ID / label
@@ -259,20 +253,20 @@ Each row represents ONE person.
 - location → last known location
 - age → age
 - sex → gender
-- notes → case details
-
----
-
-## 👥 Grouping (data only, optional)
-
-- group_id = logical grouping only
-- group_note = optional context (not used in layout)
+- notes → case details (e.g. clothing, distinguishing features)
 
 ---
 
 ## ⚠️ Important rules
-
-- Image filenames must match CSV exactly
-- One row = one card
-- Upload images separately
+- Image filenames must match CSV exactly (case-insensitive)
+- CSV must include all required fields or generation will fail
+- Images must be uploaded separately
 """)
+
+    st.download_button(
+        "Download CSV Template",
+        data="""filename,fullname,tag,missing_since,location,age,sex,notes
+example.png,Example Name,ID001,2025-01-01,London,12,Male,Blue jacket""",
+        file_name="template.csv",
+        mime="text/csv"
+    )
