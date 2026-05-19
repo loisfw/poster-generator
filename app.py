@@ -3,6 +3,7 @@ import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 import os
 import tempfile
+import platform
 
 # -----------------------
 # APP SETUP
@@ -16,42 +17,46 @@ CARD_IMG_HEIGHT = 330
 TEXT_AREA_HEIGHT = 220
 PADDING = 18
 
+# -----------------------
+# SAFE CROSS-PLATFORM FONT
+# -----------------------
+
+if platform.system() == "Darwin":
+    DEFAULT_FONT = "/System/Library/Fonts/Helvetica.ttc"
+else:
+    DEFAULT_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
+font_file = None  # ensures global exists safely
+
 # -----------------------
-# FONT SYSTEM (FIXED PROPERLY)
+# HELPERS
 # -----------------------
-
-@st.cache_resource
-def get_system_font(size):
-    fonts = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSans.ttf"
-    ]
-
-    for f in fonts:
-        try:
-            return ImageFont.truetype(f, size)
-        except:
-            continue
-
-    return ImageFont.load_default()
-
 
 def load_font(size):
     global font_file
 
+    # uploaded font always wins
     if font_file is not None:
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ttf")
         tmp.write(font_file.read())
         tmp.close()
         return ImageFont.truetype(tmp.name, size)
 
-    return get_system_font(size)
+    # system font fallback chain
+    try:
+        return ImageFont.truetype(DEFAULT_FONT, size)
+    except:
+        pass
 
-# -----------------------
-# HELPERS
-# -----------------------
+    try:
+        return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", size)
+    except:
+        pass
+
+    return ImageFont.load_default()
+
 
 def wrap_text(draw, text, font, max_width):
     words = str(text).split()
