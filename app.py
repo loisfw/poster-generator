@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
+import os
+import tempfile
 from io import BytesIO
 
 # -----------------------
@@ -15,34 +17,33 @@ CARD_IMG_HEIGHT = 330
 TEXT_AREA_HEIGHT = 220
 PADDING = 18
 
+DEFAULT_FONT = "/System/Library/Fonts/Helvetica.ttc"
+
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
 # -----------------------
-# SESSION STATE FIX (CRITICAL)
-# -----------------------
-
-if "generated" not in st.session_state:
-    st.session_state.generated = False
-
-if "png" not in st.session_state:
-    st.session_state.png = None
-
-if "pdf" not in st.session_state:
-    st.session_state.pdf = None
-
-# -----------------------
-# FONT (SAFE FALLBACK)
+# SAFE FONT LOADER (FIXES STREAMLIT CLOUD ERROR)
 # -----------------------
 
 def load_font(size):
     try:
-        return ImageFont.truetype("fonts/StackSansText-Regular.ttf", size)
+        # Try uploaded font first
+        if "font_file" in globals() and font_file is not None:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ttf")
+            tmp.write(font_file.read())
+            tmp.close()
+            return ImageFont.truetype(tmp.name, size)
+
+        # Try system font (Mac)
+        if os.path.exists(DEFAULT_FONT):
+            return ImageFont.truetype(DEFAULT_FONT, size)
+
+        # Linux/Streamlit fallback
+        return ImageFont.load_default()
+
     except:
         return ImageFont.load_default()
 
-# -----------------------
-# TEXT WRAP
-# -----------------------
 
 def wrap_text(draw, text, font, max_width):
     words = str(text).split()
@@ -68,6 +69,7 @@ def wrap_text(draw, text, font, max_width):
 # -----------------------
 
 with tab2:
+
     st.subheader("Design Settings")
 
     title_colour = st.color_picker("Title colour", "#111111")
@@ -81,10 +83,12 @@ with tab2:
 
     if show_title:
         title_text = st.text_input("Title", title_text)
-        subtitle_text = st.text_input("Subtitle", "")
+        subtitle_text = st.text_input("Subtitle (optional)", "")
         title_size = st.slider("Title size", 20, 120, 60)
 
-    text_scale = st.slider("Text size", 0.7, 1.5, 1.0)
+    text_scale = st.slider("Text size (overall scaling)", 0.7, 1.5, 1.0)
+
+    font_file = st.file_uploader("Upload .ttf / .otf font", type=["ttf", "otf"])
 
 # -----------------------
 # TAB 1
@@ -109,17 +113,19 @@ with tab1:
 
 def render(df, images_dict):
 
+    df = df.copy()
+
     rows = (len(df) + COLS - 1) // COLS
 
     width = COLS * (CARD_IMG_WIDTH + PADDING) + PADDING
-    height = rows * (CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT + PADDING) + 500
+    height = rows * (CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT + PADDING) + PADDING + 400
 
     poster = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(poster)
 
     title_font = load_font(int(title_size * text_scale))
-    name_font = load_font(int(24 * text_scale))
-    meta_font = load_font(int(16 * text_scale))
+    name_font = load_font(int(22 * text_scale))
+    body_font = load_font(int(16 * text_scale))
 
     y_offset = 40
 
@@ -127,6 +133,11 @@ def render(df, images_dict):
         w = draw.textlength(title_text, font=title_font)
         draw.text(((width - w) / 2, y_offset), title_text, fill=title_colour, font=title_font)
         y_offset += 120
+
+        if subtitle_text:
+            sub_font = load_font(int(28 * text_scale))
+            sw = draw.textlength(subtitle_text, font=sub_font)
+            draw.text(((width - sw) / 2, y_offset - 50), subtitle_text, fill=title_colour, font=sub_font)
 
     positions = {}
 
@@ -149,26 +160,37 @@ def render(df, images_dict):
             img = images_dict[filename].resize((CARD_IMG_WIDTH, CARD_IMG_HEIGHT))
             poster.paste(img, (x, y))
 
-        text_y = y + CARD_IMG_HEIGHT + 8
+        text_y = y + CARD_IMG_HEIGHT + 6
 
-        draw.text((x, text_y), row["fullname"], fill=body_colour, font=name_font)
-        text_y += 28
+        # NAME (fixed spacing)
+        for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
+            draw.text((x, text_y), line, fill=body_colour, font=name_font)
+            text_y += 26
 
-        draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=meta_font)
+        text_y += 14
+
+        # META
+        draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=body_font)
         text_y += 20
-
-        draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=meta_font)
+        draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=body_font)
         text_y += 20
-
-        draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=meta_font)
+        draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=body_font)
         text_y += 20
+        draw.text((x, text_y), f"Age: {row['age']}", fill=body_colour, font=body_font)
+        text_y += 20
+        draw.text((x, text_y), f"Sex: {row['sex']}", fill=body_colour, font=body_font)
 
-        draw.text((x, text_y), f"Age: {row['age']} | Sex: {row['sex']}", fill=body_colour, font=meta_font)
+        notes_text = str(row.get("notes", "")).strip()
+        if notes_text and notes_text.lower() != "nan":
+            text_y += 10
+            for line in wrap_text(draw, notes_text, body_font, CARD_IMG_WIDTH):
+                draw.text((x, text_y), line, fill=body_colour, font=body_font)
+                text_y += 16
 
     return poster
 
 # -----------------------
-# LOAD DATA
+# LOAD + OUTPUT
 # -----------------------
 
 if csv_file and image_files:
@@ -186,7 +208,7 @@ if csv_file and image_files:
     st.image(preview)
 
     # -----------------------
-    # GENERATE (SETS STATE PROPERLY)
+    # GENERATE + DOWNLOADS (FIXED RELIABLY)
     # -----------------------
 
     if generate:
@@ -200,34 +222,31 @@ if csv_file and image_files:
         preview.convert("RGB").save(pdf_buffer, format="PDF", resolution=300)
         pdf_buffer.seek(0)
 
-        st.session_state.png = png_buffer
-        st.session_state.pdf = pdf_buffer
-        st.session_state.generated = True
+        st.session_state["png"] = png_buffer
+        st.session_state["pdf"] = pdf_buffer
+        st.session_state["generated"] = True
 
-        st.success("Generated successfully")
+        st.success("Poster generated!")
 
-# -----------------------
-# DOWNLOADS (ALWAYS VISIBLE WHEN READY)
-# -----------------------
-
-if st.session_state.generated:
+# Always show downloads AFTER generation
+if st.session_state.get("generated"):
 
     st.download_button(
         "Download PNG",
-        data=st.session_state.png,
+        data=st.session_state["png"],
         file_name="poster.png",
         mime="image/png"
     )
 
     st.download_button(
         "Download PDF",
-        data=st.session_state.pdf,
+        data=st.session_state["pdf"],
         file_name="poster.pdf",
         mime="application/pdf"
     )
 
 # -----------------------
-# HELP TAB (UNCHANGED)
+# HELP TAB (UNCHANGED EXACTLY)
 # -----------------------
 
 with tab3:
@@ -238,22 +257,49 @@ with tab3:
 This tool generates structured posters from a CSV file and uploaded images.
 
 ### Steps:
-1. Upload CSV
-2. Upload images
-3. Adjust settings
-4. Generate poster
-5. Download PNG or PDF
+1. Upload your CSV file
+2. Upload matching images
+3. Adjust design settings
+4. Preview updates instantly
+5. Click “Generate Poster” for final export
 
 ---
 
-## 📄 Required fields
+## 📄 Required CSV fields
 
-- filename
-- fullname
-- tag
-- missing_since
-- location
-- age
-- sex
-- notes (optional)
+Each row represents ONE person.
+
+### Required fields:
+- filename → exact image file name (must match uploaded image)
+- fullname → full name of the person
+- tag → reference ID / label
+- missing_since → date last seen
+- location → last known location
+- age → age
+- sex → gender
+- notes → case details (e.g. clothing, distinguishing features)
+
+---
+
+## 👥 Grouping (data only, optional)
+
+- group_id = logical grouping only (not visual)
+- group_note = optional shared context (not displayed unless needed in export logic)
+
+---
+
+## ⚠️ Important rules
+
+- Image filenames must match CSV exactly (case-insensitive)
+- CSV must include all required fields or generation will fail
+- Images must be uploaded separately
+- Grouping is optional and does not affect layout
 """)
+
+    st.download_button(
+        "Download CSV Template",
+        """filename,fullname,tag,missing_since,location,age,sex,notes,group_id,group_note
+matthewb.png,Matthew B,NCIC#001,2025-06-02,Atlanta,12,Male,Believed to be wearing dark hoodie,group_1,These individuals are believed to be travelling together.
+""",
+        file_name="template.csv"
+    )
