@@ -17,7 +17,7 @@ CARD_IMG_HEIGHT = 330
 TEXT_AREA_HEIGHT = 220
 PADDING = 18
 
-DEFAULT_FONT = "/System/Library/Fonts/Helvetica.ttc"
+font_file = None  # IMPORTANT: ensures global exists safely
 
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
@@ -26,12 +26,30 @@ tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 # -----------------------
 
 def load_font(size):
+    global font_file
+
+    # user uploaded font
     if font_file is not None:
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ttf")
         tmp.write(font_file.read())
         tmp.close()
         return ImageFont.truetype(tmp.name, size)
-    return ImageFont.truetype(DEFAULT_FONT, size)
+
+    # SAFE SYSTEM FONT FALLBACKS (FIXES YOUR ERROR)
+    possible_fonts = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Helvetica.ttc"  # local Mac fallback
+    ]
+
+    for font_path in possible_fonts:
+        try:
+            return ImageFont.truetype(font_path, size)
+        except:
+            continue
+
+    # absolute fallback (never crashes)
+    return ImageFont.load_default()
 
 
 def wrap_text(draw, text, font, max_width):
@@ -159,28 +177,21 @@ def render(df, images_dict):
 
         text_y = y + CARD_IMG_HEIGHT + 6
 
-        # NAME
         for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
             draw.text((x, text_y), line, fill=body_colour, font=name_font)
             text_y += 24
 
-        # DETAILS (SPACED + READABLE)
         draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=body_font)
-        text_y += 22
-
+        text_y += 18
         draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=body_font)
-        text_y += 22
-
+        text_y += 18
         draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=body_font)
-        text_y += 22
-
+        text_y += 18
         draw.text((x, text_y), f"Age: {row['age']}", fill=body_colour, font=body_font)
-        text_y += 22
-
+        text_y += 18
         draw.text((x, text_y), f"Sex: {row['sex']}", fill=body_colour, font=body_font)
         text_y += 26
 
-        # NOTES (FIXED - NEVER DROPS NOW)
         notes_text = row.get("notes", "")
 
         if pd.notna(notes_text):
@@ -216,23 +227,18 @@ if csv_file and image_files:
         st.subheader("Live Preview")
         st.image(preview)
 
-    # -----------------------
-    # DOWNLOADS (FIXED)
-    # -----------------------
+    if generate:
 
-    png_buffer = io.BytesIO()
-    pdf_buffer = io.BytesIO()
+        png_buffer = io.BytesIO()
+        pdf_buffer = io.BytesIO()
 
-    preview.save(png_buffer, format="PNG")
-    png_buffer.seek(0)
+        preview.save(png_buffer, format="PNG")
+        png_buffer.seek(0)
 
-    preview.convert("RGB").save(pdf_buffer, format="PDF", resolution=300)
-    pdf_buffer.seek(0)
+        preview.convert("RGB").save(pdf_buffer, format="PDF", resolution=300)
+        pdf_buffer.seek(0)
 
-    with tab1:
-
-        if generate:
-            st.success("Poster generated!")
+        st.success("Poster generated!")
 
         st.download_button(
             "Download PNG",
@@ -249,7 +255,7 @@ if csv_file and image_files:
         )
 
 # -----------------------
-# HELP TAB (UNCHANGED EXACTLY)
+# HELP TAB (UNCHANGED)
 # -----------------------
 
 with tab3:
