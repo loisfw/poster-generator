@@ -14,11 +14,11 @@ st.title("Poster Generator")
 
 CARD_IMG_WIDTH = 260
 CARD_IMG_HEIGHT = 330
-TEXT_AREA_HEIGHT = 220
-PADDING = 18
+TEXT_AREA_HEIGHT = 260
+PADDING = 20
 
 # -----------------------
-# SAFE DEFAULT FONT (STREAMLIT CLOUD FIX)
+# SAFE FONT HANDLING
 # -----------------------
 
 DEFAULT_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -89,8 +89,6 @@ with tab2:
         subtitle_text = st.text_input("Subtitle (optional)", "")
         title_size = st.slider("Title size", 20, 120, 60)
 
-    text_scale = st.slider("Text size (overall scaling)", 0.7, 1.5, 1.0)
-
     font_file = st.file_uploader("Upload .ttf / .otf font", type=["ttf", "otf"])
 
 # -----------------------
@@ -134,9 +132,10 @@ def render(df, images_dict):
     poster = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(poster)
 
-    title_font = load_font(int(title_size * text_scale))
-    name_font = load_font(int(22 * text_scale))
-    body_font = load_font(int(16 * text_scale))
+    # FIXED FONT SIZES (NO SCALING)
+    title_font = load_font(int(title_size))
+    name_font = load_font(26)
+    body_font = load_font(18)
 
     y_offset = 40
 
@@ -146,7 +145,7 @@ def render(df, images_dict):
         y_offset += 120
 
         if subtitle_text:
-            sub_font = load_font(int(28 * text_scale))
+            sub_font = load_font(28)
             sw = draw.textlength(subtitle_text, font=sub_font)
             draw.text(((width - sw) / 2, y_offset - 50), subtitle_text, fill=title_colour, font=sub_font)
 
@@ -171,33 +170,40 @@ def render(df, images_dict):
             img = images_dict[filename].resize((CARD_IMG_WIDTH, CARD_IMG_HEIGHT))
             poster.paste(img, (x, y))
 
-        text_y = y + CARD_IMG_HEIGHT + 6
+        text_y = y + CARD_IMG_HEIGHT + 8
 
+        # NAME
         for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
             draw.text((x, text_y), line, fill=body_colour, font=name_font)
-            text_y += 24
+            text_y += 26
 
+        # DETAILS (fixed spacing)
         draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=body_font)
-        text_y += 18
-        draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=body_font)
-        text_y += 18
-        draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=body_font)
-        text_y += 18
-        draw.text((x, text_y), f"Age: {row['age']}", fill=body_colour, font=body_font)
-        text_y += 18
-        draw.text((x, text_y), f"Sex: {row['sex']}", fill=body_colour, font=body_font)
-        text_y += 18
+        text_y += 22
 
+        draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=body_font)
+        text_y += 22
+
+        draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=body_font)
+        text_y += 22
+
+        draw.text((x, text_y), f"Age: {row['age']}", fill=body_colour, font=body_font)
+        text_y += 22
+
+        draw.text((x, text_y), f"Sex: {row['sex']}", fill=body_colour, font=body_font)
+        text_y += 22
+
+        # NOTES
         notes_text = str(row.get("notes", "")).strip()
         if notes_text and notes_text.lower() != "nan":
             for line in wrap_text(draw, notes_text, body_font, CARD_IMG_WIDTH):
                 draw.text((x, text_y), line, fill=body_colour, font=body_font)
-                text_y += 16
+                text_y += 20
 
     return poster
 
 # -----------------------
-# LOAD + OUTPUT (FIXED DOWNLOADS)
+# LOAD + OUTPUT
 # -----------------------
 
 if csv_file and image_files:
@@ -229,7 +235,6 @@ if csv_file and image_files:
     buf_pdf.seek(0)
 
     with tab1:
-
         if generate:
             st.success("Poster generated!")
 
@@ -248,7 +253,7 @@ if csv_file and image_files:
         )
 
 # -----------------------
-# HELP TAB (RESTORED EXACTLY AS ORIGINAL)
+# HELP TAB (UNCHANGED - EXACT ORIGINAL)
 # -----------------------
 
 with tab3:
