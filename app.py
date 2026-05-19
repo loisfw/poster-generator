@@ -12,7 +12,7 @@ st.title("Poster Generator")
 
 CARD_IMG_WIDTH = 260
 CARD_IMG_HEIGHT = 330
-TEXT_AREA_HEIGHT = 260
+TEXT_AREA_HEIGHT = 220
 PADDING = 18
 
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
@@ -39,7 +39,7 @@ def load_font(size):
         return ImageFont.load_default()
 
 # -----------------------
-# TEXT WRAP (STRICT WIDTH CONTROL)
+# WRAP TEXT
 # -----------------------
 
 def wrap_text(draw, text, font, max_width):
@@ -66,6 +66,7 @@ def wrap_text(draw, text, font, max_width):
 # -----------------------
 
 with tab2:
+
     st.subheader("Design Settings")
 
     title_colour = st.color_picker("Title colour", "#111111")
@@ -79,7 +80,7 @@ with tab2:
 
     if show_title:
         title_text = st.text_input("Title", title_text)
-        subtitle_text = st.text_input("Subtitle", "")
+        subtitle_text = st.text_input("Subtitle (optional)", "")
         title_size = st.slider("Title size", 20, 120, 60)
 
     text_scale = st.slider("Text size", 0.7, 1.5, 1.0)
@@ -99,19 +100,7 @@ with tab1:
         accept_multiple_files=True
     )
 
-    generate_col1, generate_col2, generate_col3 = st.columns([1,1,2])
-
-    generate = generate_col1.button("Generate Poster", key="generate_btn")
-
-    # Template download ALWAYS visible
-    generate_col2.download_button(
-        "Download CSV Template",
-        data="""filename,fullname,tag,missing_since,location,age,sex,notes
-example.png,John Doe,ID001,2025-01-01,London,34,Male,Example note
-""",
-        file_name="template.csv",
-        mime="text/csv"
-    )
+    generate = st.button("Generate Poster", key="generate_btn")
 
 # -----------------------
 # RENDER ENGINE
@@ -133,13 +122,11 @@ def render(df, images_dict):
 
     y_offset = 40
 
-    # TITLE
     if show_title:
         w = draw.textlength(title_text, font=title_font)
         draw.text(((width - w) / 2, y_offset), title_text, fill=title_colour, font=title_font)
         y_offset += 120
 
-    # POSITIONS
     positions = {}
     for i in range(len(df)):
         col = i % COLS
@@ -150,7 +137,6 @@ def render(df, images_dict):
 
         positions[i] = (x, y)
 
-    # DRAW CARDS
     for i, row in df.iterrows():
 
         x, y = positions[i]
@@ -163,12 +149,12 @@ def render(df, images_dict):
 
         text_y = y + CARD_IMG_HEIGHT + 10
 
-        # NAME (WRAPPED + SAFE)
+        # NAME
         for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
             draw.text((x, text_y), line, fill=body_colour, font=name_font)
             text_y += 26
 
-        text_y += 6  # spacing so tag doesn't collide
+        text_y += 6
 
         draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=body_font)
         text_y += 18
@@ -181,7 +167,6 @@ def render(df, images_dict):
 
         draw.text((x, text_y), f"Age: {row['age']} | Sex: {row['sex']}", fill=body_colour, font=body_font)
 
-        # NOTES (FIXED - NEVER DROP)
         notes = str(row.get("notes", "")).strip()
         if notes and notes.lower() != "nan":
             text_y += 18
@@ -192,7 +177,7 @@ def render(df, images_dict):
     return poster
 
 # -----------------------
-# LOAD DATA
+# LOAD + OUTPUT
 # -----------------------
 
 if csv_file and image_files:
@@ -208,10 +193,6 @@ if csv_file and image_files:
 
     st.subheader("Live Preview")
     st.image(preview)
-
-    # -----------------------
-    # GENERATE + DOWNLOADS
-    # -----------------------
 
     if generate:
 
@@ -230,7 +211,6 @@ if csv_file and image_files:
 
         st.success("Poster generated!")
 
-    # DOWNLOADS ALWAYS SHOW IF GENERATED
     if st.session_state.generated:
 
         st.download_button(
@@ -248,7 +228,7 @@ if csv_file and image_files:
         )
 
 # -----------------------
-# HELP TAB (RESTORED CLEAN)
+# HELP TAB (RESTORED EXACT STYLE)
 # -----------------------
 
 with tab3:
@@ -256,30 +236,43 @@ with tab3:
     st.markdown("""
 ## 📘 How to use this tool
 
-1. Upload CSV
-2. Upload images
+This tool generates structured posters from a CSV file and uploaded images.
+
+### Steps:
+1. Upload your CSV file
+2. Upload matching images
 3. Adjust design settings
-4. Generate poster
-5. Download PNG or PDF
+4. Preview updates instantly
+5. Click “Generate Poster” for final export
 
 ---
 
-## 📄 CSV fields
+## 📄 Required CSV fields
 
-- filename
-- fullname
-- tag
-- missing_since
-- location
-- age
-- sex
-- notes
+Each row represents ONE person.
+
+### Required fields:
+- filename → exact image file name (must match uploaded image)
+- fullname → full name of the person
+- tag → reference ID / label
+- missing_since → date last seen
+- location → last known location
+- age → age
+- sex → gender
+- notes → case details
 
 ---
 
-## ⚠️ Notes
+## 👥 Grouping (data only, optional)
 
-- Images must match filenames exactly
-- Each row = one card
-- Text will auto-wrap inside each card
+- group_id = logical grouping only
+- group_note = optional context (not used in layout)
+
+---
+
+## ⚠️ Important rules
+
+- Image filenames must match CSV exactly
+- One row = one card
+- Upload images separately
 """)
