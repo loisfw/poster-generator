@@ -3,7 +3,6 @@ import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 import os
 import tempfile
-import io
 
 # -----------------------
 # APP SETUP
@@ -17,7 +16,7 @@ CARD_IMG_HEIGHT = 330
 TEXT_AREA_HEIGHT = 220
 PADDING = 18
 
-font_file = None  # IMPORTANT: ensures global exists safely
+DEFAULT_FONT = "/System/Library/Fonts/Helvetica.ttc"
 
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
@@ -26,30 +25,12 @@ tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 # -----------------------
 
 def load_font(size):
-    global font_file
-
-    # user uploaded font
     if font_file is not None:
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ttf")
         tmp.write(font_file.read())
         tmp.close()
         return ImageFont.truetype(tmp.name, size)
-
-    # SAFE SYSTEM FONT FALLBACKS (FIXES YOUR ERROR)
-    possible_fonts = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-        "/System/Library/Fonts/Helvetica.ttc"  # local Mac fallback
-    ]
-
-    for font_path in possible_fonts:
-        try:
-            return ImageFont.truetype(font_path, size)
-        except:
-            continue
-
-    # absolute fallback (never crashes)
-    return ImageFont.load_default()
+    return ImageFont.truetype(DEFAULT_FONT, size)
 
 
 def wrap_text(draw, text, font, max_width):
@@ -62,8 +43,7 @@ def wrap_text(draw, text, font, max_width):
         if draw.textlength(test, font=font) <= max_width:
             current = test
         else:
-            if current:
-                lines.append(current)
+            lines.append(current)
             current = w
 
     if current:
@@ -115,12 +95,16 @@ with tab1:
     generate = st.button("Generate Poster")
 
 # -----------------------
-# CORE RENDER ENGINE
+# CORE RENDER ENGINE (CLEAN GRID ONLY)
 # -----------------------
 
 def render(df, images_dict):
 
     df = df.copy()
+
+    # -----------------------
+    # SAFE GROUP ID (DATA ONLY - NO VISUAL IMPACT)
+    # -----------------------
 
     if "group_id" not in df.columns:
         df["group_id"] = ""
@@ -129,6 +113,10 @@ def render(df, images_dict):
 
     empty = df["group_id"].str.strip() == ""
     df.loc[empty, "group_id"] = "single_" + df.index[empty].astype(str)
+
+    # -----------------------
+    # GRID LAYOUT
+    # -----------------------
 
     rows = (len(df) + COLS - 1) // COLS
 
@@ -144,6 +132,10 @@ def render(df, images_dict):
 
     y_offset = 40
 
+    # -----------------------
+    # TITLE
+    # -----------------------
+
     if show_title:
         w = draw.textlength(title_text, font=title_font)
         draw.text(((width - w) / 2, y_offset), title_text, fill=title_colour, font=title_font)
@@ -153,6 +145,10 @@ def render(df, images_dict):
             sub_font = load_font(int(28 * text_scale))
             sw = draw.textlength(subtitle_text, font=sub_font)
             draw.text(((width - sw) / 2, y_offset - 50), subtitle_text, fill=title_colour, font=sub_font)
+
+    # -----------------------
+    # POSITION MAP
+    # -----------------------
 
     positions = {}
 
@@ -164,6 +160,10 @@ def render(df, images_dict):
         y = y_offset + PADDING + row * (CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT + PADDING)
 
         positions[i] = (x, y)
+
+    # -----------------------
+    # DRAW CARDS
+    # -----------------------
 
     for i, row in df.iterrows():
 
@@ -190,17 +190,13 @@ def render(df, images_dict):
         draw.text((x, text_y), f"Age: {row['age']}", fill=body_colour, font=body_font)
         text_y += 18
         draw.text((x, text_y), f"Sex: {row['sex']}", fill=body_colour, font=body_font)
-        text_y += 26
+        text_y += 18
 
-        notes_text = row.get("notes", "")
-
-        if pd.notna(notes_text):
-            notes_text = str(notes_text).strip()
-
-            if notes_text and notes_text.lower() != "nan":
-                for line in wrap_text(draw, notes_text, body_font, CARD_IMG_WIDTH):
-                    draw.text((x, text_y), line, fill=body_colour, font=body_font)
-                    text_y += 18
+        notes_text = str(row.get("notes", "")).strip()
+        if notes_text and notes_text.lower() != "nan":
+            for line in wrap_text(draw, notes_text, body_font, CARD_IMG_WIDTH):
+                draw.text((x, text_y), line, fill=body_colour, font=body_font)
+                text_y += 16
 
     return poster
 
@@ -227,35 +223,25 @@ if csv_file and image_files:
         st.subheader("Live Preview")
         st.image(preview)
 
-    if generate:
+    with tab1:
 
-        png_buffer = io.BytesIO()
-        pdf_buffer = io.BytesIO()
+        if generate:
 
-        preview.save(png_buffer, format="PNG")
-        png_buffer.seek(0)
+            os.makedirs("output", exist_ok=True)
 
-        preview.convert("RGB").save(pdf_buffer, format="PDF", resolution=300)
-        pdf_buffer.seek(0)
+            png_path = "output/poster.png"
+            pdf_path = "output/poster.pdf"
 
-        st.success("Poster generated!")
+            preview.save(png_path)
+            preview.convert("RGB").save(pdf_path, "PDF", resolution=300)
 
-        st.download_button(
-            "Download PNG",
-            data=png_buffer,
-            file_name="poster.png",
-            mime="image/png"
-        )
+            st.success("Poster generated!")
 
-        st.download_button(
-            "Download PDF",
-            data=pdf_buffer,
-            file_name="poster.pdf",
-            mime="application/pdf"
-        )
+            st.download_button("Download PNG", open(png_path, "rb"), file_name="poster.png")
+            st.download_button("Download PDF", open(pdf_path, "rb"), file_name="poster.pdf")
 
 # -----------------------
-# HELP TAB (UNCHANGED)
+# HELP TAB (UNCHANGED - PRESERVED EXACTLY)
 # -----------------------
 
 with tab3:
