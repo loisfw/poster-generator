@@ -18,7 +18,20 @@ PADDING = 18
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
 # -----------------------
-# FONT SAFE LOAD (NO CRASHES)
+# SESSION STATE (KEY FIX)
+# -----------------------
+
+if "png" not in st.session_state:
+    st.session_state.png = None
+
+if "pdf" not in st.session_state:
+    st.session_state.pdf = None
+
+if "generated" not in st.session_state:
+    st.session_state.generated = False
+
+# -----------------------
+# FONT SAFE LOAD
 # -----------------------
 
 def load_font(size):
@@ -28,7 +41,7 @@ def load_font(size):
         return ImageFont.load_default()
 
 # -----------------------
-# TEXT WRAP (IMPORTANT FIX FOR OVERFLOW)
+# TEXT WRAP (prevents overflow)
 # -----------------------
 
 def wrap_text(draw, text, font, max_width):
@@ -51,7 +64,7 @@ def wrap_text(draw, text, font, max_width):
     return lines
 
 # -----------------------
-# DESIGN TAB
+# DESIGN
 # -----------------------
 
 with tab2:
@@ -73,7 +86,7 @@ with tab2:
     text_scale = st.slider("Text size", 0.7, 1.5, 1.0)
 
 # -----------------------
-# CREATE TAB
+# CREATE
 # -----------------------
 
 with tab1:
@@ -87,7 +100,7 @@ with tab1:
         accept_multiple_files=True
     )
 
-    generate = st.button("Generate Poster", key="generate_btn")
+    generate = st.button("Generate Poster")
 
 # -----------------------
 # RENDER ENGINE
@@ -109,7 +122,6 @@ def render(df, images_dict):
 
     y_offset = 40
 
-    # ---------------- TITLE ----------------
     if show_title:
         w = draw.textlength(title_text, font=title_font)
         draw.text(((width - w) / 2, y_offset), title_text, fill=title_colour, font=title_font)
@@ -126,7 +138,6 @@ def render(df, images_dict):
 
         positions[i] = (x, y)
 
-    # ---------------- DRAW CARDS ----------------
     for i, row in df.iterrows():
 
         x, y = positions[i]
@@ -139,12 +150,11 @@ def render(df, images_dict):
 
         text_y = y + CARD_IMG_HEIGHT + 8
 
-        # FULL NAME (WRAPPED FIX)
         for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
             draw.text((x, text_y), line, fill=body_colour, font=name_font)
             text_y += 26
 
-        text_y += 6  # spacing so it doesn't collide (your issue)
+        text_y += 6
 
         draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=meta_font)
         text_y += 18
@@ -158,7 +168,6 @@ def render(df, images_dict):
         draw.text((x, text_y), f"Age: {row['age']} | Sex: {row['sex']}", fill=body_colour, font=meta_font)
         text_y += 18
 
-        # NOTES FIX (was previously inconsistent)
         notes = str(row.get("notes", "")).strip()
         if notes and notes.lower() != "nan":
             for line in wrap_text(draw, notes, meta_font, CARD_IMG_WIDTH):
@@ -188,7 +197,7 @@ if csv_file and image_files:
     st.image(preview)
 
 # -----------------------
-# GENERATE + DOWNLOAD (FIXED RELIABILITY)
+# GENERATE (FIXED - ALWAYS WRITES STATE)
 # -----------------------
 
 if generate and preview is not None:
@@ -202,28 +211,34 @@ if generate and preview is not None:
     preview.convert("RGB").save(pdf_buffer, format="PDF", resolution=300)
     pdf_buffer.seek(0)
 
-    st.success("Poster generated")
+    st.session_state.png = png_buffer
+    st.session_state.pdf = pdf_buffer
+    st.session_state.generated = True
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.download_button(
-            "Download PNG",
-            data=png_buffer,
-            file_name="poster.png",
-            mime="image/png"
-        )
-
-    with col2:
-        st.download_button(
-            "Download PDF",
-            data=pdf_buffer,
-            file_name="poster.pdf",
-            mime="application/pdf"
-        )
+    st.success("Poster generated successfully")
 
 # -----------------------
-# HELP TAB (RESTORED EXACT STYLE)
+# DOWNLOADS (ALWAYS VISIBLE AFTER GENERATE)
+# -----------------------
+
+if st.session_state.generated:
+
+    st.download_button(
+        "Download PNG",
+        data=st.session_state.png,
+        file_name="poster.png",
+        mime="image/png"
+    )
+
+    st.download_button(
+        "Download PDF",
+        data=st.session_state.pdf,
+        file_name="poster.pdf",
+        mime="application/pdf"
+    )
+
+# -----------------------
+# HELP TAB (UNCHANGED STYLE RESTORED)
 # -----------------------
 
 with tab3:
@@ -253,20 +268,19 @@ Required fields:
 - location → last known location
 - age → age
 - sex → gender
-- notes → case details (e.g. clothing, distinguishing features)
+- notes → case details (optional)
 
 ---
 
 ## ⚠️ Important rules
-- Image filenames must match CSV exactly (case-insensitive)
-- CSV must include all required fields or generation will fail
+- Image filenames must match CSV exactly
+- CSV must include required fields
 - Images must be uploaded separately
 """)
 
     st.download_button(
         "Download CSV Template",
-        data="""filename,fullname,tag,missing_since,location,age,sex,notes
-example.png,Example Name,ID001,2025-01-01,London,12,Male,Blue jacket""",
+        data="filename,fullname,tag,missing_since,location,age,sex,notes\nexample.png,Example Name,ID001,2025-01-01,London,12,Male,Blue jacket",
         file_name="template.csv",
         mime="text/csv"
     )
