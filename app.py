@@ -12,26 +12,24 @@ st.title("Poster Generator")
 
 CARD_IMG_WIDTH = 260
 CARD_IMG_HEIGHT = 330
-TEXT_AREA_HEIGHT = 240
+TEXT_AREA_HEIGHT = 220
 PADDING = 18
 
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
 # -----------------------
-# SESSION STATE (KEY FIX)
+# SESSION STATE
 # -----------------------
 
 if "png" not in st.session_state:
     st.session_state.png = None
-
 if "pdf" not in st.session_state:
     st.session_state.pdf = None
-
 if "generated" not in st.session_state:
     st.session_state.generated = False
 
 # -----------------------
-# FONT SAFE LOAD
+# FONT
 # -----------------------
 
 def load_font(size):
@@ -41,7 +39,7 @@ def load_font(size):
         return ImageFont.load_default()
 
 # -----------------------
-# TEXT WRAP (prevents overflow)
+# TEXT WRAP (SAFE)
 # -----------------------
 
 def wrap_text(draw, text, font, max_width):
@@ -64,7 +62,7 @@ def wrap_text(draw, text, font, max_width):
     return lines
 
 # -----------------------
-# DESIGN
+# TAB 2 - DESIGN
 # -----------------------
 
 with tab2:
@@ -73,20 +71,21 @@ with tab2:
     title_colour = st.color_picker("Title colour", "#111111")
     body_colour = st.color_picker("Text colour (cards)", "#000000")
 
-    show_title = st.checkbox("Show title", True)
+    show_title = st.checkbox("Show title", value=True)
 
     title_text = "MISSING PERSONS NOTICE"
     subtitle_text = ""
-    title_size = st.slider("Title size", 20, 120, 60)
+    title_size = 60
 
     if show_title:
         title_text = st.text_input("Title", title_text)
         subtitle_text = st.text_input("Subtitle", "")
+        title_size = st.slider("Title size", 20, 120, 60)
 
     text_scale = st.slider("Text size", 0.7, 1.5, 1.0)
 
 # -----------------------
-# CREATE
+# TAB 1
 # -----------------------
 
 with tab1:
@@ -100,7 +99,9 @@ with tab1:
         accept_multiple_files=True
     )
 
-    generate = st.button("Generate Poster")
+    colA, colB = st.columns([1,1])
+
+    generate = colA.button("Generate Poster", key="generate_btn")
 
 # -----------------------
 # RENDER ENGINE
@@ -117,11 +118,12 @@ def render(df, images_dict):
     draw = ImageDraw.Draw(poster)
 
     title_font = load_font(int(title_size * text_scale))
-    name_font = load_font(int(26 * text_scale))
+    name_font = load_font(int(24 * text_scale))
     meta_font = load_font(int(16 * text_scale))
 
     y_offset = 40
 
+    # title
     if show_title:
         w = draw.textlength(title_text, font=title_font)
         draw.text(((width - w) / 2, y_offset), title_text, fill=title_colour, font=title_font)
@@ -150,37 +152,36 @@ def render(df, images_dict):
 
         text_y = y + CARD_IMG_HEIGHT + 8
 
+        # FULL NAME (BIGGER + SAFE WRAP)
         for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
             draw.text((x, text_y), line, fill=body_colour, font=name_font)
-            text_y += 26
+            text_y += 28
 
-        text_y += 6
+        text_y += 6  # 🔥 extra spacing so it NEVER touches tag
 
         draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=meta_font)
-        text_y += 18
+        text_y += 20
 
         draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=meta_font)
-        text_y += 18
+        text_y += 20
 
         draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=meta_font)
-        text_y += 18
+        text_y += 20
 
         draw.text((x, text_y), f"Age: {row['age']} | Sex: {row['sex']}", fill=body_colour, font=meta_font)
-        text_y += 18
 
-        notes = str(row.get("notes", "")).strip()
-        if notes and notes.lower() != "nan":
-            for line in wrap_text(draw, notes, meta_font, CARD_IMG_WIDTH):
+        # NOTES (FIXED - WAS SOMETIMES DROPPING)
+        if "notes" in row and str(row["notes"]).strip().lower() not in ["", "nan"]:
+            text_y += 18
+            for line in wrap_text(draw, row["notes"], meta_font, CARD_IMG_WIDTH):
                 draw.text((x, text_y), line, fill=body_colour, font=meta_font)
-                text_y += 16
+                text_y += 18
 
     return poster
 
 # -----------------------
-# LOAD DATA
+# LOAD + GENERATE
 # -----------------------
-
-preview = None
 
 if csv_file and image_files:
 
@@ -196,26 +197,25 @@ if csv_file and image_files:
     st.subheader("Live Preview")
     st.image(preview)
 
-# -----------------------
-# GENERATE (FIXED - ALWAYS WRITES STATE)
-# -----------------------
+    # -----------------------
+    # GENERATE (STATE SAFE)
+    # -----------------------
 
-if generate and preview is not None:
+    if generate:
+        png_buffer = BytesIO()
+        pdf_buffer = BytesIO()
 
-    png_buffer = BytesIO()
-    pdf_buffer = BytesIO()
+        preview.save(png_buffer, format="PNG")
+        png_buffer.seek(0)
 
-    preview.save(png_buffer, format="PNG")
-    png_buffer.seek(0)
+        preview.convert("RGB").save(pdf_buffer, format="PDF", resolution=300)
+        pdf_buffer.seek(0)
 
-    preview.convert("RGB").save(pdf_buffer, format="PDF", resolution=300)
-    pdf_buffer.seek(0)
+        st.session_state.png = png_buffer
+        st.session_state.pdf = pdf_buffer
+        st.session_state.generated = True
 
-    st.session_state.png = png_buffer
-    st.session_state.pdf = pdf_buffer
-    st.session_state.generated = True
-
-    st.success("Poster generated successfully")
+        st.success("Generated successfully")
 
 # -----------------------
 # DOWNLOADS (ALWAYS VISIBLE AFTER GENERATE)
@@ -235,52 +235,4 @@ if st.session_state.generated:
         data=st.session_state.pdf,
         file_name="poster.pdf",
         mime="application/pdf"
-    )
-
-# -----------------------
-# HELP TAB (UNCHANGED STYLE RESTORED)
-# -----------------------
-
-with tab3:
-
-    st.markdown("""
-## 📘 How to use this tool
-
-This tool generates structured posters from a CSV file and uploaded images.
-
-### Steps:
-1. Upload CSV
-2. Upload images
-3. Adjust settings
-4. Generate poster
-5. Download PNG or PDF
-
----
-
-## 📄 Required CSV fields
-Each row represents ONE person.
-
-Required fields:
-- filename → exact image file name (must match uploaded image)
-- fullname → full name of the person
-- tag → reference ID / label
-- missing_since → date last seen
-- location → last known location
-- age → age
-- sex → gender
-- notes → case details (optional)
-
----
-
-## ⚠️ Important rules
-- Image filenames must match CSV exactly
-- CSV must include required fields
-- Images must be uploaded separately
-""")
-
-    st.download_button(
-        "Download CSV Template",
-        data="filename,fullname,tag,missing_since,location,age,sex,notes\nexample.png,Example Name,ID001,2025-01-01,London,12,Male,Blue jacket",
-        file_name="template.csv",
-        mime="text/csv"
     )
