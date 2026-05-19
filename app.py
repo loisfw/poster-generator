@@ -29,21 +29,17 @@ if "generated" not in st.session_state:
     st.session_state.generated = False
 
 # -----------------------
-# FONT LOADING (FIXED - NO MAC CRASH)
+# FONT
 # -----------------------
 
 def load_font(size):
     try:
-        # safe cross-platform fallback first
         return ImageFont.truetype("fonts/StackSansText-Regular.ttf", size)
     except:
-        try:
-            return ImageFont.load_default()
-        except:
-            return ImageFont.load_default()
+        return ImageFont.load_default()
 
 # -----------------------
-# TEXT WRAP (FIXED - NO OVERFLOW)
+# TEXT WRAP
 # -----------------------
 
 def wrap_text(draw, text, font, max_width):
@@ -66,10 +62,11 @@ def wrap_text(draw, text, font, max_width):
     return lines
 
 # -----------------------
-# TAB 2 - DESIGN
+# TAB 2
 # -----------------------
 
 with tab2:
+
     st.subheader("Design Settings")
 
     title_colour = st.color_picker("Title colour", "#111111")
@@ -106,7 +103,7 @@ with tab1:
     generate = st.button("Generate Poster")
 
 # -----------------------
-# RENDER ENGINE (FIXED CLIPPING + SPACING)
+# RENDER ENGINE
 # -----------------------
 
 def render(df, images_dict):
@@ -125,18 +122,10 @@ def render(df, images_dict):
 
     y_offset = 40
 
-    # -----------------------
-    # TITLE
-    # -----------------------
-
     if show_title:
         w = draw.textlength(title_text, font=title_font)
         draw.text(((width - w) / 2, y_offset), title_text, fill=title_colour, font=title_font)
         y_offset += 120
-
-    # -----------------------
-    # POSITIONING
-    # -----------------------
 
     positions = {}
 
@@ -148,10 +137,6 @@ def render(df, images_dict):
         y = y_offset + PADDING + row * (CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT + PADDING)
 
         positions[i] = (x, y)
-
-    # -----------------------
-    # DRAW CARDS
-    # -----------------------
 
     for i, row in df.iterrows():
 
@@ -165,11 +150,12 @@ def render(df, images_dict):
 
         text_y = y + CARD_IMG_HEIGHT + 10
 
-        # FULL NAME (WRAPPED + EXTRA SPACE FIX)
+        # NAME (WRAPPED)
         for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
             draw.text((x, text_y), line, fill=body_colour, font=name_font)
             text_y += 30
-        text_y += 6  # 🔥 extra spacing so tag never collides
+
+        text_y += 6
 
         draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=meta_font)
         text_y += 20
@@ -203,48 +189,55 @@ if csv_file and image_files:
     st.image(preview)
 
     # -----------------------
-    # GENERATE + STORE FILES PROPERLY
+    # BUTTON ROW (FIXED UX)
     # -----------------------
 
-    if generate:
+    col1, col2 = st.columns([1, 2])
 
-        png_buffer = BytesIO()
-        pdf_buffer = BytesIO()
+    with col1:
+        generate_clicked = st.button("Generate Poster")
 
-        preview.save(png_buffer, format="PNG")
-        png_buffer.seek(0)
+    with col2:
 
-        preview.convert("RGB").save(pdf_buffer, format="PDF", resolution=300)
-        pdf_buffer.seek(0)
+        if generate_clicked:
 
-        st.session_state.png = png_buffer
-        st.session_state.pdf = pdf_buffer
-        st.session_state.generated = True
+            png_buffer = BytesIO()
+            pdf_buffer = BytesIO()
 
-        st.success("Poster generated successfully")
+            preview.save(png_buffer, format="PNG")
+            png_buffer.seek(0)
+
+            preview.convert("RGB").save(pdf_buffer, format="PDF", resolution=300)
+            pdf_buffer.seek(0)
+
+            st.session_state.png = png_buffer
+            st.session_state.pdf = pdf_buffer
+            st.session_state.generated = True
+
+            st.success("Generated successfully")
 
 # -----------------------
-# DOWNLOADS (ALWAYS VISIBLE WHEN READY)
+# DOWNLOADS (NOW RIGHT NEXT TO FLOW)
 # -----------------------
 
 if st.session_state.generated:
 
     st.download_button(
-        "Download PNG",
+        "⬇️ Download PNG",
         data=st.session_state.png,
         file_name="poster.png",
         mime="image/png"
     )
 
     st.download_button(
-        "Download PDF",
+        "⬇️ Download PDF",
         data=st.session_state.pdf,
         file_name="poster.pdf",
         mime="application/pdf"
     )
 
 # -----------------------
-# HELP TAB (RESTORED EXACT VERSION YOU LIKED)
+# HELP TAB (RESTORED + CSV TEMPLATE ADDED BACK)
 # -----------------------
 
 with tab3:
@@ -268,14 +261,14 @@ This tool generates structured posters from a CSV file and uploaded images.
 Each row represents ONE person.
 
 ### Required fields:
-- filename → exact image file name (must match uploaded image)
+- filename → exact image file name
 - fullname → full name of the person
 - tag → reference ID / label
 - missing_since → date last seen
 - location → last known location
 - age → age
 - sex → gender
-- notes → case details (optional)
+- notes → optional case details
 
 ---
 
@@ -293,3 +286,11 @@ Each row represents ONE person.
 - Images must be uploaded separately
 - Grouping does not affect layout
 """)
+
+    st.download_button(
+        "Download CSV Template",
+        """filename,fullname,tag,missing_since,location,age,sex,notes
+example.png,John Doe,ID001,2024-01-01,London,25,Male,Last seen wearing dark jacket
+""",
+        file_name="template.csv"
+    )
