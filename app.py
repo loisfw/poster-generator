@@ -18,7 +18,7 @@ PADDING = 18
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
 # -----------------------
-# SESSION STATE
+# SESSION STATE (KEY FIX)
 # -----------------------
 
 if "png" not in st.session_state:
@@ -31,7 +31,7 @@ if "generated" not in st.session_state:
     st.session_state.generated = False
 
 # -----------------------
-# FONT
+# FONT SAFE LOAD
 # -----------------------
 
 def load_font(size):
@@ -41,7 +41,7 @@ def load_font(size):
         return ImageFont.load_default()
 
 # -----------------------
-# TEXT WRAP
+# TEXT WRAP (prevents overflow)
 # -----------------------
 
 def wrap_text(draw, text, font, max_width):
@@ -103,7 +103,7 @@ with tab1:
     generate = st.button("Generate Poster")
 
 # -----------------------
-# RENDER ENGINE (FIXED OVERFLOW)
+# RENDER ENGINE
 # -----------------------
 
 def render(df, images_dict):
@@ -148,35 +148,31 @@ def render(df, images_dict):
             img = images_dict[filename].resize((CARD_IMG_WIDTH, CARD_IMG_HEIGHT))
             poster.paste(img, (x, y))
 
-        # -----------------------
-        # CLIPPING BOX (KEY FIX)
-        # -----------------------
-        max_text_height = TEXT_AREA_HEIGHT - 10
         text_y = y + CARD_IMG_HEIGHT + 8
-        start_y = text_y
 
-        def safe_draw(text, font, step):
-            nonlocal text_y
-            if text_y - start_y > max_text_height:
-                return
-            draw.text((x, text_y), text, fill=body_colour, font=font)
-            text_y += step
-
-        # NAME (slightly larger + spacing fix)
         for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
-            safe_draw(line, name_font, 26)
+            draw.text((x, text_y), line, fill=body_colour, font=name_font)
+            text_y += 26
 
-        text_y += 6  # extra breathing room
+        text_y += 6
 
-        safe_draw(f"Tag: {row['tag']}", meta_font, 18)
-        safe_draw(f"Missing: {row['missing_since']}", meta_font, 18)
-        safe_draw(f"Location: {row['location']}", meta_font, 18)
-        safe_draw(f"Age: {row['age']} | Sex: {row['sex']}", meta_font, 18)
+        draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=meta_font)
+        text_y += 18
+
+        draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=meta_font)
+        text_y += 18
+
+        draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=meta_font)
+        text_y += 18
+
+        draw.text((x, text_y), f"Age: {row['age']} | Sex: {row['sex']}", fill=body_colour, font=meta_font)
+        text_y += 18
 
         notes = str(row.get("notes", "")).strip()
         if notes and notes.lower() != "nan":
             for line in wrap_text(draw, notes, meta_font, CARD_IMG_WIDTH):
-                safe_draw(line, meta_font, 16)
+                draw.text((x, text_y), line, fill=body_colour, font=meta_font)
+                text_y += 16
 
     return poster
 
@@ -201,7 +197,7 @@ if csv_file and image_files:
     st.image(preview)
 
 # -----------------------
-# GENERATE + DOWNLOADS (FIXED)
+# GENERATE (FIXED - ALWAYS WRITES STATE)
 # -----------------------
 
 if generate and preview is not None:
@@ -219,9 +215,12 @@ if generate and preview is not None:
     st.session_state.pdf = pdf_buffer
     st.session_state.generated = True
 
-    st.success("Poster generated")
+    st.success("Poster generated successfully")
 
-# ALWAYS SHOW DOWNLOADS WHEN READY
+# -----------------------
+# DOWNLOADS (ALWAYS VISIBLE AFTER GENERATE)
+# -----------------------
+
 if st.session_state.generated:
 
     st.download_button(
@@ -239,7 +238,7 @@ if st.session_state.generated:
     )
 
 # -----------------------
-# HELP TAB (UNCHANGED)
+# HELP TAB (UNCHANGED STYLE RESTORED)
 # -----------------------
 
 with tab3:
@@ -262,21 +261,21 @@ This tool generates structured posters from a CSV file and uploaded images.
 Each row represents ONE person.
 
 Required fields:
-- filename → exact image file name
-- fullname → full name
-- tag → reference ID
-- missing_since → last seen
+- filename → exact image file name (must match uploaded image)
+- fullname → full name of the person
+- tag → reference ID / label
+- missing_since → date last seen
 - location → last known location
 - age → age
 - sex → gender
-- notes → optional case details
+- notes → case details (optional)
 
 ---
 
 ## ⚠️ Important rules
-- filenames must match images exactly
+- Image filenames must match CSV exactly
 - CSV must include required fields
-- images uploaded separately
+- Images must be uploaded separately
 """)
 
     st.download_button(
