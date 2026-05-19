@@ -3,6 +3,7 @@ import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 import os
 import tempfile
+from io import BytesIO
 
 # -----------------------
 # APP SETUP
@@ -19,7 +20,17 @@ PADDING = 18
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
 # -----------------------
-# FONT SYSTEM (StackSans SAFE)
+# SESSION STATE (FOR DOWNLOADS)
+# -----------------------
+
+if "png_bytes" not in st.session_state:
+    st.session_state.png_bytes = None
+
+if "pdf_bytes" not in st.session_state:
+    st.session_state.pdf_bytes = None
+
+# -----------------------
+# FONT SYSTEM
 # -----------------------
 
 def load_font(size, weight="regular"):
@@ -105,8 +116,6 @@ with tab1:
 
 def render(df, images_dict):
 
-    df = df.copy()
-
     rows = (len(df) + COLS - 1) // COLS
 
     width = COLS * (CARD_IMG_WIDTH + PADDING) + PADDING
@@ -115,17 +124,12 @@ def render(df, images_dict):
     poster = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(poster)
 
-    # fonts
     title_font = load_font(int(title_size * text_scale), "bold")
     name_font = load_font(int(24 * text_scale), "bold")
     meta_font = load_font(int(16 * text_scale), "regular")
     notes_font = load_font(int(14 * text_scale), "light")
 
     y_offset = 40
-
-    # -----------------------
-    # TITLE
-    # -----------------------
 
     if show_title:
         w = draw.textlength(title_text, font=title_font)
@@ -137,11 +141,8 @@ def render(df, images_dict):
             sw = draw.textlength(subtitle_text, font=sub_font)
             draw.text(((width - sw) / 2, y_offset - 50), subtitle_text, fill=title_colour, font=sub_font)
 
-    # -----------------------
-    # GRID POSITIONS
-    # -----------------------
-
     positions = {}
+
     for i in range(len(df)):
         col = i % COLS
         row = i // COLS
@@ -150,10 +151,6 @@ def render(df, images_dict):
         y = y_offset + PADDING + row * (CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT + PADDING)
 
         positions[i] = (x, y)
-
-    # -----------------------
-    # CARDS
-    # -----------------------
 
     for i, row in df.iterrows():
 
@@ -168,31 +165,24 @@ def render(df, images_dict):
         text_y = y + CARD_IMG_HEIGHT + 6
 
         # NAME
-        name_lines = wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH)
-        for line in name_lines:
+        for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
             draw.text((x, text_y), line, fill=body_colour, font=name_font)
             text_y += 26
 
-        # IMPORTANT GAP (fix overlap)
         text_y += 14
 
         # META
         draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=meta_font)
         text_y += 22
-
         draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=meta_font)
         text_y += 22
-
         draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=meta_font)
         text_y += 22
-
         draw.text((x, text_y), f"Age: {row['age']}", fill=body_colour, font=meta_font)
         text_y += 22
-
         draw.text((x, text_y), f"Sex: {row['sex']}", fill=body_colour, font=meta_font)
         text_y += 26
 
-        # NOTES
         notes = str(row.get("notes", "")).strip()
         if notes and notes.lower() != "nan":
             for line in wrap_text(draw, notes, notes_font, CARD_IMG_WIDTH):
@@ -202,7 +192,7 @@ def render(df, images_dict):
     return poster
 
 # -----------------------
-# LOAD DATA
+# LOAD + GENERATE
 # -----------------------
 
 if csv_file and image_files:
@@ -220,26 +210,44 @@ if csv_file and image_files:
     st.image(preview)
 
     # -----------------------
-    # GENERATE + DOWNLOADS (FIXED)
+    # GENERATE BUTTON
     # -----------------------
 
     if generate:
 
-        os.makedirs("output", exist_ok=True)
+        png_buffer = BytesIO()
+        pdf_buffer = BytesIO()
 
-        png_path = "output/poster.png"
-        pdf_path = "output/poster.pdf"
+        preview.save(png_buffer, format="PNG")
+        png_buffer.seek(0)
 
-        preview.save(png_path)
-        preview.convert("RGB").save(pdf_path, "PDF", resolution=300)
+        preview.convert("RGB").save(pdf_buffer, format="PDF", resolution=300)
+        pdf_buffer.seek(0)
+
+        st.session_state.png_bytes = png_buffer
+        st.session_state.pdf_bytes = pdf_buffer
 
         st.success("Poster generated!")
 
-        with open(png_path, "rb") as f:
-            st.download_button("Download PNG", f, file_name="poster.png")
+# -----------------------
+# DOWNLOADS (ALWAYS VISIBLE AFTER GENERATION)
+# -----------------------
 
-        with open(pdf_path, "rb") as f:
-            st.download_button("Download PDF", f, file_name="poster.pdf")
+if st.session_state.png_bytes and st.session_state.pdf_bytes:
+
+    st.download_button(
+        "Download PNG",
+        data=st.session_state.png_bytes,
+        file_name="poster.png",
+        mime="image/png"
+    )
+
+    st.download_button(
+        "Download PDF",
+        data=st.session_state.pdf_bytes,
+        file_name="poster.pdf",
+        mime="application/pdf"
+    )
 
 # -----------------------
 # HELP TAB (UNCHANGED)
@@ -296,7 +304,6 @@ Each row represents ONE person.
         "Download CSV Template",
         """filename,fullname,tag,missing_since,location,age,sex,notes,group_id,group_note
 matthewb.png,Matthew B,NCIC#001,2025-06-02,Atlanta,12,Male,Believed to be wearing dark hoodie,group_1,These individuals are believed to be travelling together.
-zara.png,Zara L,NCIC#002,2025-06-02,Atlanta,10,Female,Believed to be wearing pink jacket,group_1,These individuals are believed to be travelling together.
 """,
         file_name="template.csv"
     )
