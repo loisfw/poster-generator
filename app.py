@@ -3,6 +3,8 @@ import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 import os
 import tempfile
+import io
+import requests
 
 # -----------------------
 # APP SETUP
@@ -16,41 +18,40 @@ CARD_IMG_HEIGHT = 330
 TEXT_AREA_HEIGHT = 220
 PADDING = 18
 
-DEFAULT_FONT = None  # FIXED: no hardcoded Mac path
-
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
 # -----------------------
-# HELPERS
+# FONT SYSTEM (FIXED + STABLE)
 # -----------------------
 
 def load_font(size):
     global font_file
 
     try:
+        # user uploaded font always wins
         if font_file is not None:
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ttf")
             tmp.write(font_file.read())
             tmp.close()
             return ImageFont.truetype(tmp.name, size)
 
-        font_paths = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/System/Library/Fonts/Supplemental/Arial.ttf",
-        ]
+        # stable bundled font (no system dependency)
+        font_path = "/tmp/roboto.ttf"
+        font_url = "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Regular.ttf"
 
-        for path in font_paths:
-            try:
-                return ImageFont.truetype(path, size)
-            except:
-                continue
+        if not os.path.exists(font_path):
+            r = requests.get(font_url)
+            with open(font_path, "wb") as f:
+                f.write(r.content)
 
-        return ImageFont.load_default()
+        return ImageFont.truetype(font_path, size)
 
     except:
         return ImageFont.load_default()
 
+# -----------------------
+# HELPERS
+# -----------------------
 
 def wrap_text(draw, text, font, max_width):
     words = str(text).split()
@@ -114,7 +115,7 @@ with tab1:
     generate = st.button("Generate Poster")
 
 # -----------------------
-# CORE RENDER ENGINE (UNCHANGED)
+# CORE RENDER ENGINE (UNCHANGED LOGIC)
 # -----------------------
 
 def render(df, images_dict):
@@ -143,6 +144,10 @@ def render(df, images_dict):
 
     y_offset = 40
 
+    # -----------------------
+    # TITLE
+    # -----------------------
+
     if show_title:
         w = draw.textlength(title_text, font=title_font)
         draw.text(((width - w) / 2, y_offset), title_text, fill=title_colour, font=title_font)
@@ -152,6 +157,10 @@ def render(df, images_dict):
             sub_font = load_font(int(28 * text_scale))
             sw = draw.textlength(subtitle_text, font=sub_font)
             draw.text(((width - sw) / 2, y_offset - 50), subtitle_text, fill=title_colour, font=sub_font)
+
+    # -----------------------
+    # GRID POSITIONS
+    # -----------------------
 
     positions = {}
 
@@ -163,6 +172,10 @@ def render(df, images_dict):
         y = y_offset + PADDING + row * (CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT + PADDING)
 
         positions[i] = (x, y)
+
+    # -----------------------
+    # CARDS
+    # -----------------------
 
     for i, row in df.iterrows():
 
@@ -200,7 +213,7 @@ def render(df, images_dict):
     return poster
 
 # -----------------------
-# LOAD + OUTPUT (NO CHANGES EXCEPT STABILITY)
+# LOAD + OUTPUT (FIXED DOWNLOADS)
 # -----------------------
 
 if csv_file and image_files:
@@ -223,10 +236,8 @@ if csv_file and image_files:
         st.image(preview)
 
     # -----------------------
-    # DOWNLOADS (UNCHANGED LOGIC STYLE, SAFE BUFFER VERSION)
+    # DOWNLOADS (STABLE STREAMLIT SAFE)
     # -----------------------
-
-    import io
 
     png_buffer = io.BytesIO()
     pdf_buffer = io.BytesIO()
@@ -257,7 +268,7 @@ if csv_file and image_files:
         )
 
 # -----------------------
-# HELP TAB (UNCHANGED EXACTLY - LEFT AS YOU PROVIDED)
+# HELP TAB (UNCHANGED EXACTLY)
 # -----------------------
 
 with tab3:
