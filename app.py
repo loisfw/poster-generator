@@ -18,7 +18,7 @@ PADDING = 18
 tab1, tab2, tab3 = st.tabs(["Create Poster", "Design", "Help"])
 
 # -----------------------
-# SESSION STATE
+# SESSION STATE (DOWNLOAD FIX)
 # -----------------------
 
 if "generated" not in st.session_state:
@@ -41,7 +41,7 @@ def load_font(size):
         return ImageFont.load_default()
 
 # -----------------------
-# TEXT WRAP
+# TEXT WRAP (IMPORTANT FOR OVERFLOW FIX)
 # -----------------------
 
 def wrap_text(draw, text, font, max_width):
@@ -64,7 +64,7 @@ def wrap_text(draw, text, font, max_width):
     return lines
 
 # -----------------------
-# TAB 2
+# DESIGN TAB
 # -----------------------
 
 with tab2:
@@ -88,7 +88,7 @@ with tab2:
     text_scale = st.slider("Text size", 0.7, 1.5, 1.0)
 
 # -----------------------
-# TAB 1
+# INPUT TAB
 # -----------------------
 
 with tab1:
@@ -105,7 +105,7 @@ with tab1:
     generate = st.button("Generate Poster")
 
 # -----------------------
-# RENDER ENGINE (FIXED OVERFLOW + NOTES)
+# RENDER ENGINE (FIXED OVERFLOW + NAME WRAP)
 # -----------------------
 
 def render(df, images_dict):
@@ -124,11 +124,13 @@ def render(df, images_dict):
 
     y_offset = 40
 
+    # TITLE
     if show_title:
         w = draw.textlength(title_text, font=title_font)
         draw.text(((width - w) / 2, y_offset), title_text, fill=title_colour, font=title_font)
         y_offset += 120
 
+    # POSITION MAP
     positions = {}
 
     for i in range(len(df)):
@@ -140,10 +142,7 @@ def render(df, images_dict):
 
         positions[i] = (x, y)
 
-    # -----------------------
     # DRAW CARDS
-    # -----------------------
-
     for i, row in df.iterrows():
 
         x, y = positions[i]
@@ -156,29 +155,32 @@ def render(df, images_dict):
 
         text_y = y + CARD_IMG_HEIGHT + 8
 
-        # NAME
-        draw.text((x, text_y), str(row["fullname"]), fill=body_colour, font=name_font)
-        text_y += 28
+        # -----------------------
+        # NAME (FIXED OVERFLOW)
+        # -----------------------
+        for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
+            draw.text((x, text_y), line, fill=body_colour, font=name_font)
+            text_y += 26
+
+        text_y += 8
 
         # META
-        for line in [
-            f"Tag: {row['tag']}",
-            f"Missing: {row['missing_since']}",
-            f"Location: {row['location']}",
-            f"Age: {row['age']} | Sex: {row['sex']}"
-        ]:
-            draw.text((x, text_y), line, fill=body_colour, font=meta_font)
-            text_y += 20
+        draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=meta_font)
+        text_y += 18
 
-        # -----------------------
-        # NOTES (FIXED + GUARANTEED VISIBILITY)
-        # -----------------------
+        draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=meta_font)
+        text_y += 18
 
+        draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=meta_font)
+        text_y += 18
+
+        draw.text((x, text_y), f"Age: {row['age']} | Sex: {row['sex']}", fill=body_colour, font=meta_font)
+        text_y += 18
+
+        # NOTES (RESTORED + SAFE)
         notes = str(row.get("notes", "")).strip()
         if notes and notes.lower() != "nan":
-            text_y += 6
             for line in wrap_text(draw, notes, meta_font, CARD_IMG_WIDTH):
-                # CLIP SAFETY (prevents spill)
                 if text_y < y + CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT:
                     draw.text((x, text_y), line, fill=body_colour, font=meta_font)
                     text_y += 16
@@ -186,7 +188,7 @@ def render(df, images_dict):
     return poster
 
 # -----------------------
-# LOAD DATA
+# LOAD + GENERATE
 # -----------------------
 
 if csv_file and image_files:
@@ -203,10 +205,7 @@ if csv_file and image_files:
     st.subheader("Live Preview")
     st.image(preview)
 
-    # -----------------------
-    # GENERATE
-    # -----------------------
-
+    # GENERATE FILES
     if generate:
 
         png_buffer = BytesIO()
@@ -225,10 +224,13 @@ if csv_file and image_files:
         st.success("Generated successfully")
 
 # -----------------------
-# DOWNLOADS (FIXED)
+# DOWNLOADS (ALWAYS WORKING)
 # -----------------------
 
-if st.session_state.generated:
+if st.session_state.get("generated"):
+
+    st.divider()
+    st.subheader("Download")
 
     st.download_button(
         "Download PNG",
@@ -245,7 +247,7 @@ if st.session_state.generated:
     )
 
 # -----------------------
-# HELP TAB (UNCHANGED EXACTLY)
+# HELP TAB (UNCHANGED EXACTLY AS REQUESTED)
 # -----------------------
 
 with tab3:
