@@ -156,10 +156,52 @@ def render(df, images_dict):
     meta_font  = load_font(int(16 * text_scale))
 
     # ------------------------------------------------------------------
-    # PASS 1: work out card width and x position for every entry.
-    # Two-photo cards get double width (2 * CARD_IMG_WIDTH + PADDING)
-    # so both faces are always fully visible.
-    # We lay cards out row by row, never exceeding the poster width.
+    # Helper: measure how many px of text a card needs
+    # ------------------------------------------------------------------
+
+    def val(v):
+        """Return clean string or empty string — never 'nan'."""
+        s = str(v).strip()
+        return "" if s.lower() in ("nan", "none", "") else s
+
+    def measure_text_height(row, card_w, dummy_draw):
+        """Calculate the pixel height needed for all text in a card."""
+        wide = card_w > CARD_IMG_WIDTH
+        h = 8  # top gap
+
+        if wide:
+            h += 20  # banner line
+
+        # Name lines
+        name_lines = wrap_text(dummy_draw, val(row["fullname"]), name_font, card_w)
+        h += len(name_lines) * 26 + 6
+
+        # Fixed meta fields — only include non-empty ones
+        tag      = val(row.get("tag", ""))
+        missing  = val(row.get("missing_since", ""))
+        location = val(row.get("location", ""))
+        age      = val(row.get("age", ""))
+        sex      = val(row.get("sex", ""))
+
+        if tag:      h += 18
+        if missing:  h += 18
+        if location: h += 18
+        age_sex = " | ".join(filter(None, [
+            f"Age: {age}" if age else "",
+            f"Sex: {sex}" if sex else ""
+        ]))
+        if age_sex:  h += 18
+
+        # Notes
+        notes = val(row.get("notes", ""))
+        if notes:
+            note_lines = wrap_text(dummy_draw, notes, meta_font, card_w)
+            h += len(note_lines) * 16
+
+        return h
+
+    # ------------------------------------------------------------------
+    # PASS 1: card widths
     # ------------------------------------------------------------------
 
     poster_width = COLS * (CARD_IMG_WIDTH + PADDING) + PADDING
@@ -169,43 +211,78 @@ def render(df, images_dict):
         filename = str(row["filename"]).lower().strip()
         img = images_dict.get(filename)
         if img and is_wide_image(img):
-            card_widths.append(CARD_IMG_WIDTH * 2 + PADDING)  # double-wide
+            card_widths.append(CARD_IMG_WIDTH * 2 + PADDING)
         else:
             card_widths.append(CARD_IMG_WIDTH)
 
-    # Layout: pack cards left-to-right; start new row when full
+    # ------------------------------------------------------------------
+    # PASS 2: measure text height per card, then compute per-poster-row
+    # height as the tallest card in that row
+    # ------------------------------------------------------------------
+
     y_offset = 40
     if show_title:
         y_offset += 120
 
-    positions  = []   # (x, y, card_w) per entry
-    row_x      = PADDING
-    row_y      = y_offset + PADDING
-    row_height = CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT + PADDING
+    # Dummy image + draw just for text measurement
+    dummy_img  = Image.new("RGB", (poster_width, 100), "white")
+    dummy_draw = ImageDraw.Draw(dummy_img)
 
+    # Assign each card to a poster row
+    row_x = PADDING
+    card_rows = []   # which poster-row each card belongs to
+    poster_row = 0
     for card_w in card_widths:
-        # If this card doesn't fit on the current row, wrap
         if row_x + card_w > poster_width - PADDING and row_x > PADDING:
-            row_x  = PADDING
-            row_y += row_height
-
-        positions.append((row_x, row_y, card_w))
+            row_x = PADDING
+            poster_row += 1
+        card_rows.append(poster_row)
         row_x += card_w + PADDING
 
-    total_rows = (row_y - (y_offset + PADDING)) // row_height + 1
-    poster_height = y_offset + PADDING + total_rows * row_height + 200
+    num_poster_rows = poster_row + 1
+
+    # For each poster row, find the tallest text block
+    row_text_heights = [0] * num_poster_rows
+    for i, (_, row) in enumerate(df.iterrows()):
+        th = measure_text_height(row, card_widths[i], dummy_draw)
+        pr = card_rows[i]
+        if th > row_text_heights[pr]:
+            row_text_heights[pr] = th
+
+    # Row heights = image height + tallest text in that row + padding
+    row_heights = [CARD_IMG_HEIGHT + row_text_heights[r] + PADDING
+                   for r in range(num_poster_rows)]
+
+    # Compute y start of each poster row
+    row_y_starts = []
+    cy = y_offset + PADDING
+    for rh in row_heights:
+        row_y_starts.append(cy)
+        cy += rh
+
+    # Now assign final (x, y, card_w) positions
+    row_x = PADDING
+    cur_row = 0
+    positions = []
+    for i, card_w in enumerate(card_widths):
+        if row_x + card_w > poster_width - PADDING and row_x > PADDING:
+            row_x = PADDING
+            cur_row += 1
+        positions.append((row_x, row_y_starts[cur_row], card_w))
+        row_x += card_w + PADDING
+
+    poster_height = cy + 80
+
+    # ------------------------------------------------------------------
+    # PASS 3: draw everything
+    # ------------------------------------------------------------------
 
     poster = Image.new("RGB", (poster_width, poster_height), "white")
     draw   = ImageDraw.Draw(poster)
 
-    # Title
     if show_title:
         w = draw.textlength(title_text, font=title_font)
         draw.text(((poster_width - w) / 2, 40), title_text, fill=title_colour, font=title_font)
-
-    # ------------------------------------------------------------------
-    # PASS 2: draw each card
-    # ------------------------------------------------------------------
 
     for i, (_, row) in enumerate(df.iterrows()):
         x, y, card_w = positions[i]
@@ -214,33 +291,24 @@ def render(df, images_dict):
         if filename in images_dict:
             place_image(poster, images_dict[filename], x, y, card_w)
 
-        text_y       = y + CARD_IMG_HEIGHT + 8
-        max_text_bot = y + CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT
-        wide         = card_w > CARD_IMG_WIDTH  # True for two-photo cards
+        text_y = y + CARD_IMG_HEIGHT + 8
+        wide   = card_w > CARD_IMG_WIDTH
 
-        def draw_line_centred(text, font, line_h):
-            """Draw text centred across the full card width."""
+        def draw_centred(text, font, line_h):
             nonlocal text_y
-            if text_y + line_h > max_text_bot:
-                return False
             tw = draw.textlength(text, font=font)
             tx = x + (card_w - tw) // 2
             draw.text((tx, text_y), text, fill=body_colour, font=font)
             text_y += line_h
-            return True
 
-        def draw_line_left(text, font, line_h):
-            """Draw text left-aligned."""
+        def draw_left(text, font, line_h):
             nonlocal text_y
-            if text_y + line_h > max_text_bot:
-                return False
             draw.text((x, text_y), text, fill=body_colour, font=font)
             text_y += line_h
-            return True
 
-        draw_line = draw_line_centred if wide else draw_line_left
+        draw_line = draw_centred if wide else draw_left
 
-        # For two-photo cards, add a clear banner so viewers know it's one person
+        # Banner for two-photo cards
         if wide:
             banner = "— Both photos are of the same person —"
             bw = draw.textlength(banner, font=meta_font)
@@ -249,26 +317,32 @@ def render(df, images_dict):
             text_y += 20
 
         # Name
-        for line in wrap_text(draw, row["fullname"], name_font, card_w):
-            if not draw_line(line, name_font, 26):
-                break
-
+        for line in wrap_text(draw, val(row["fullname"]), name_font, card_w):
+            draw_line(line, name_font, 26)
         text_y += 6
 
-        for label in [
-            f"Tag: {row['tag']}",
-            f"Missing: {row['missing_since']}",
-            f"Location: {row['location']}",
-            f"Age: {row['age']} | Sex: {row['sex']}",
-        ]:
-            if not draw_line(label, meta_font, 18):
-                break
+        # Meta fields — skip entirely if empty
+        tag      = val(row.get("tag", ""))
+        missing  = val(row.get("missing_since", ""))
+        location = val(row.get("location", ""))
+        age      = val(row.get("age", ""))
+        sex      = val(row.get("sex", ""))
 
-        notes = str(row.get("notes", "")).strip()
-        if notes and notes.lower() != "nan":
+        if tag:      draw_line(f"Tag: {tag}",           meta_font, 18)
+        if missing:  draw_line(f"Missing: {missing}",   meta_font, 18)
+        if location: draw_line(f"Location: {location}", meta_font, 18)
+
+        age_sex = " | ".join(filter(None, [
+            f"Age: {age}" if age else "",
+            f"Sex: {sex}" if sex else ""
+        ]))
+        if age_sex: draw_line(age_sex, meta_font, 18)
+
+        # Notes
+        notes = val(row.get("notes", ""))
+        if notes:
             for line in wrap_text(draw, notes, meta_font, card_w):
-                if not draw_line(line, meta_font, 16):
-                    break
+                draw_line(line, meta_font, 16)
 
     return poster
 
