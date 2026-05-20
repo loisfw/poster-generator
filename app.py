@@ -145,7 +145,16 @@ def render(df, images_dict):
         filename = str(row["filename"]).lower().strip()
 
         if filename in images_dict:
-            img = images_dict[filename].resize((CARD_IMG_WIDTH, CARD_IMG_HEIGHT))
+            img = images_dict[filename]
+            # Scale to fill the card box while preserving aspect ratio, then centre-crop
+            src_w, src_h = img.size
+            scale = max(CARD_IMG_WIDTH / src_w, CARD_IMG_HEIGHT / src_h)
+            scaled_w = int(src_w * scale)
+            scaled_h = int(src_h * scale)
+            img = img.resize((scaled_w, scaled_h), Image.LANCZOS)
+            crop_x = (scaled_w - CARD_IMG_WIDTH) // 2
+            crop_y = (scaled_h - CARD_IMG_HEIGHT) // 2
+            img = img.crop((crop_x, crop_y, crop_x + CARD_IMG_WIDTH, crop_y + CARD_IMG_HEIGHT))
             poster.paste(img, (x, y))
 
         text_y = y + CARD_IMG_HEIGHT + 8
