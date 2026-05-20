@@ -146,16 +146,29 @@ def render(df, images_dict):
 
         if filename in images_dict:
             img = images_dict[filename]
-            # Scale to fill the card box while preserving aspect ratio, then centre-crop
             src_w, src_h = img.size
-            scale = max(CARD_IMG_WIDTH / src_w, CARD_IMG_HEIGHT / src_h)
-            scaled_w = int(src_w * scale)
-            scaled_h = int(src_h * scale)
-            img = img.resize((scaled_w, scaled_h), Image.LANCZOS)
-            crop_x = (scaled_w - CARD_IMG_WIDTH) // 2
-            crop_y = (scaled_h - CARD_IMG_HEIGHT) // 2
-            img = img.crop((crop_x, crop_y, crop_x + CARD_IMG_WIDTH, crop_y + CARD_IMG_HEIGHT))
-            poster.paste(img, (x, y))
+            src_ratio = src_w / src_h
+            card_ratio = CARD_IMG_WIDTH / CARD_IMG_HEIGHT
+
+            if src_ratio > card_ratio + 0.2:
+                # Wide image (two photos stitched): scale to fit height, centre on white background
+                scale = CARD_IMG_HEIGHT / src_h
+                scaled_w = int(src_w * scale)
+                img = img.resize((scaled_w, CARD_IMG_HEIGHT), Image.LANCZOS)
+                card = Image.new("RGB", (CARD_IMG_WIDTH, CARD_IMG_HEIGHT), "white")
+                paste_x = (CARD_IMG_WIDTH - scaled_w) // 2
+                card.paste(img, (paste_x, 0))
+                poster.paste(card, (x, y))
+            else:
+                # Portrait / square: scale to fill, centre-crop
+                scale = max(CARD_IMG_WIDTH / src_w, CARD_IMG_HEIGHT / src_h)
+                scaled_w = int(src_w * scale)
+                scaled_h = int(src_h * scale)
+                img = img.resize((scaled_w, scaled_h), Image.LANCZOS)
+                crop_x = (scaled_w - CARD_IMG_WIDTH) // 2
+                crop_y = (scaled_h - CARD_IMG_HEIGHT) // 2
+                img = img.crop((crop_x, crop_y, crop_x + CARD_IMG_WIDTH, crop_y + CARD_IMG_HEIGHT))
+                poster.paste(img, (x, y))
 
         text_y = y + CARD_IMG_HEIGHT + 8
 
@@ -178,9 +191,13 @@ def render(df, images_dict):
         draw.text((x, text_y), f"Age: {row['age']} | Sex: {row['sex']}", fill=body_colour, font=meta_font)
         text_y += 18
 
+        # Notes: cap at card boundary to prevent overflow into next row
         notes = str(row.get("notes", "")).strip()
         if notes and notes.lower() != "nan":
+            max_text_bottom = y + CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT
             for line in wrap_text(draw, notes, meta_font, CARD_IMG_WIDTH):
+                if text_y + 16 > max_text_bottom:
+                    break
                 draw.text((x, text_y), line, fill=body_colour, font=meta_font)
                 text_y += 16
 
