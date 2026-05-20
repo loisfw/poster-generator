@@ -6,10 +6,6 @@ from io import BytesIO
 import re
 from collections import OrderedDict
 
-# -----------------------
-# APP SETUP
-# -----------------------
-
 st.set_page_config(page_title="Poster Generator", layout="wide")
 st.title("Poster Generator")
 
@@ -20,17 +16,9 @@ csv_tab, pdf_tab, design_tab, help_tab = st.tabs([
     "Help"
 ])
 
-# -----------------------
-# SESSION STATE
-# -----------------------
-
 for key in ["csv_png", "csv_pdf", "csv_generated", "pdf_png", "pdf_pdf", "pdf_generated"]:
     if key not in st.session_state:
         st.session_state[key] = False if "generated" in key else None
-
-# -----------------------
-# SHARED SETTINGS
-# -----------------------
 
 CSV_CARD_IMG_WIDTH = 260
 CSV_CARD_IMG_HEIGHT = 330
@@ -49,9 +37,6 @@ GROUP_NOTE_LINE_HEIGHT = 15
 PERSON_NOTE_GAP = 8
 PERSON_NOTE_LINE_HEIGHT = 13
 
-# -----------------------
-# FONT / TEXT HELPERS
-# -----------------------
 
 def load_font(size):
     try:
@@ -89,10 +74,6 @@ def wrap_text(draw, text, font, max_width):
     return lines
 
 
-# -----------------------
-# DESIGN TAB
-# -----------------------
-
 with design_tab:
     st.subheader("Design Settings")
 
@@ -112,7 +93,7 @@ with design_tab:
 
 
 # ============================================================
-# CSV + IMAGES VERSION
+# CSV + IMAGES MODE
 # ============================================================
 
 def csv_is_wide_image(img):
@@ -138,12 +119,10 @@ def csv_place_image(poster, img, x, y, card_w):
         scale = max(card_w / src_w, CSV_CARD_IMG_HEIGHT / src_h)
         scaled_w = int(src_w * scale)
         scaled_h = int(src_h * scale)
-
         img_resized = img.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
 
         crop_x = (scaled_w - card_w) // 2
         crop_y = (scaled_h - CSV_CARD_IMG_HEIGHT) // 2
-
         img_cropped = img_resized.crop(
             (crop_x, crop_y, crop_x + card_w, crop_y + CSV_CARD_IMG_HEIGHT)
         )
@@ -163,8 +142,7 @@ def render_csv_poster(df, images_dict, cols):
         if wide:
             h += 20
 
-        name_lines = wrap_text(dummy_draw, val(row["fullname"]), name_font, card_w)
-        h += len(name_lines) * 26 + 6
+        h += len(wrap_text(dummy_draw, val(row["fullname"]), name_font, card_w)) * 26 + 6
 
         tag = val(row.get("tag", ""))
         missing = val(row.get("missing_since", ""))
@@ -188,9 +166,9 @@ def render_csv_poster(df, images_dict, cols):
             h += 18
 
         notes = val(row.get("notes", ""))
+
         if notes:
-            note_lines = wrap_text(dummy_draw, notes, meta_font, card_w)
-            h += len(note_lines) * 16
+            h += len(wrap_text(dummy_draw, notes, meta_font, card_w)) * 16
 
         return h
 
@@ -225,17 +203,18 @@ def render_csv_poster(df, images_dict, cols):
         card_rows.append(poster_row)
         row_x += card_w + CSV_PADDING
 
-    num_poster_rows = poster_row + 1
-    row_text_heights = [0] * num_poster_rows
+    num_rows = poster_row + 1
+    row_text_heights = [0] * num_rows
 
     for i, (_, row) in enumerate(df.iterrows()):
-        th = measure_text_height(row, card_widths[i], dummy_draw)
-        pr = card_rows[i]
-        row_text_heights[pr] = max(row_text_heights[pr], th)
+        row_text_heights[card_rows[i]] = max(
+            row_text_heights[card_rows[i]],
+            measure_text_height(row, card_widths[i], dummy_draw)
+        )
 
     row_heights = [
         CSV_CARD_IMG_HEIGHT + row_text_heights[r] + CSV_PADDING
-        for r in range(num_poster_rows)
+        for r in range(num_rows)
     ]
 
     row_y_starts = []
@@ -283,8 +262,7 @@ def render_csv_poster(df, images_dict, cols):
         def draw_centred(text, font, line_h):
             nonlocal text_y
             tw = draw.textlength(text, font=font)
-            tx = x + (card_w - tw) // 2
-            draw.text((tx, text_y), text, fill=body_colour, font=font)
+            draw.text((x + (card_w - tw) // 2, text_y), text, fill=body_colour, font=font)
             text_y += line_h
 
         def draw_left(text, font, line_h):
@@ -297,8 +275,7 @@ def render_csv_poster(df, images_dict, cols):
         if wide:
             banner = "— Both photos are of the same person —"
             bw = draw.textlength(banner, font=meta_font)
-            bx = x + (card_w - bw) // 2
-            draw.text((bx, text_y), banner, fill="#888888", font=meta_font)
+            draw.text((x + (card_w - bw) // 2, text_y), banner, fill="#888888", font=meta_font)
             text_y += 20
 
         for line in wrap_text(draw, val(row["fullname"]), name_font, card_w):
@@ -337,13 +314,12 @@ def render_csv_poster(df, images_dict, cols):
 
 
 # ============================================================
-# PDF VERSION
+# PDF MODE
 # ============================================================
 
 def crop_fill_image(img, size):
     target_w, target_h = size
     src_w, src_h = img.size
-
     scale = max(target_w / src_w, target_h / src_h)
 
     new_w = int(src_w * scale)
@@ -360,13 +336,19 @@ def crop_fill_image(img, size):
 def is_bad_name(line):
     bad = [
         "missing",
+        "missing child",
         "missing children",
+        "possible associate",
         "how you can help",
         "scan, view",
         "report sighting",
         "police",
         "department",
+        "sheriff",
+        "office",
         "ncmec",
+        "national center",
+        "missing & exploited",
     ]
 
     l = line.lower().strip()
@@ -391,26 +373,133 @@ def extract_ncic(segment):
     return ""
 
 
-def extract_note_text(lines, people):
-    stop_phrases = [
-        "police",
-        "department",
+def find_possible_associate_line_index(lines):
+    for i, line in enumerate(lines):
+        if "possible associate" in line.lower():
+            return i
+    return None
+
+
+def parse_associate_from_lines(lines, start_index):
+    if start_index is None:
+        return None
+
+    section = lines[start_index + 1:]
+
+    stop_words = [
         "how you can help",
+        "police",
+        "sheriff",
+        "office",
+        "department",
+        "ncmec:",
+        "national center",
+        "missing & exploited",
         "scan",
         "report sighting",
         "911",
         "1-800",
-        "ncmec:",
+        "1-877",
         "call",
     ]
 
-    known_people = [p["fullname"].lower().strip() for p in people]
+    cleaned = []
+
+    for line in section:
+        lower = line.lower().strip()
+
+        if any(w in lower for w in stop_words):
+            break
+
+        if not line:
+            continue
+
+        cleaned.append(line)
+
+    if not cleaned:
+        return None
+
+    name = ""
+    tag = ""
+    age = ""
+    sex = ""
+
+    for i, line in enumerate(cleaned):
+        lower = line.lower().strip()
+
+        if not name:
+            if (
+                not lower.startswith("ncic")
+                and not lower.startswith("age now")
+                and lower not in ["male", "female"]
+                and "possible associate" not in lower
+            ):
+                name = line
+
+        if lower.startswith("ncic"):
+            tag = extract_ncic(cleaned[i:i + 3])
+
+        if lower.startswith("age now"):
+            age = extract_value(line, r"Age Now")
+
+        if lower in ["female", "male"]:
+            sex = line
+
+    if not name:
+        return None
+
+    return {
+        "fullname": name,
+        "tag": tag,
+        "missing_since": "",
+        "location": "",
+        "age": age,
+        "sex": sex,
+        "line_index": start_index,
+        "images": [],
+        "is_associate": True,
+    }
+
+
+def extract_note_text(lines, people):
+    known_people = [
+        p["fullname"].lower().strip()
+        for p in people
+        if p and p.get("fullname")
+    ]
+
+    hard_stop_phrases = [
+        "how you can help",
+        "scan",
+        "view and share",
+        "report sighting",
+        "ncmec:",
+        "national center",
+        "missing & exploited",
+        "1-800",
+        "1-877",
+        "911",
+        "the-lost",
+        "call 911",
+    ]
+
+    banned_note_phrases = [
+        "police",
+        "sheriff",
+        "office",
+        "department",
+        "county",
+        "ncic#",
+        "missing since",
+        "age now",
+        "possible associate",
+    ]
 
     stop_index = len(lines)
 
     for i, line in enumerate(lines):
         lower = line.lower().strip()
-        if any(phrase in lower for phrase in stop_phrases):
+        if any(phrase in lower for phrase in hard_stop_phrases):
             stop_index = i
             break
 
@@ -423,15 +512,9 @@ def extract_note_text(lines, people):
             start_candidates.append(i + 1)
 
         if re.match(r"^\d+\s+years\s+old$", lower):
-            if i + 1 < stop_index and lines[i + 1].lower().strip() in ["male", "female"]:
-                start_candidates.append(i + 2)
-            else:
-                start_candidates.append(i + 1)
+            start_candidates.append(i + 1)
 
-    if start_candidates:
-        note_start = max(start_candidates)
-    else:
-        return ""
+    note_start = max(start_candidates) if start_candidates else 0
 
     note_lines = []
 
@@ -440,13 +523,12 @@ def extract_note_text(lines, people):
 
         skip = (
             not line.strip()
-            or lower in ["missing", "missing children", "male", "female"]
-            or lower.startswith("ncic")
-            or lower.startswith("missing since")
-            or lower.startswith("age now")
-            or re.match(r"^\d+\s+years\s+old$", lower)
+            or lower in ["missing", "missing child", "missing children", "male", "female"]
             or any(name == lower for name in known_people)
+            or any(phrase in lower for phrase in banned_note_phrases)
+            or re.match(r"^\d+\s+years\s+old$", lower)
             or re.match(r"^\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}$", line)
+            or re.match(r"^\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}\s*$", line)
             or ("," in line and len(line.split()) <= 4)
         )
 
@@ -467,6 +549,17 @@ def extract_records_from_pdf(uploaded_file):
         text = page.get_text("text")
         lines = [clean_text(l) for l in text.splitlines() if clean_text(l)]
 
+        possible_associate_line_index = find_possible_associate_line_index(lines)
+
+        possible_associate_y = None
+        blocks = page.get_text("blocks")
+
+        for block in blocks:
+            block_text = clean_text(block[4]).lower()
+            if "possible associate" in block_text:
+                possible_associate_y = block[1]
+                break
+
         ncmec_id = ""
 
         for line in lines:
@@ -474,7 +567,8 @@ def extract_records_from_pdf(uploaded_file):
             if m:
                 ncmec_id = m.group(1)
 
-        photo_items = []
+        main_photo_items = []
+        associate_photo_items = []
 
         for img_info in page.get_images(full=True):
             xref = img_info[0]
@@ -483,7 +577,6 @@ def extract_records_from_pdf(uploaded_file):
             for rect in rects:
                 is_person_photo = (
                     rect.x0 < 470
-                    and rect.y0 < 520
                     and rect.width > 80
                     and rect.height > 85
                 )
@@ -494,17 +587,30 @@ def extract_records_from_pdf(uploaded_file):
                 base = doc.extract_image(xref)
                 pil_img = Image.open(BytesIO(base["image"])).convert("RGB")
 
-                photo_items.append({
+                item = {
                     "rect": rect,
                     "image": pil_img,
-                })
+                }
 
-        photo_items = sorted(photo_items, key=lambda p: (p["rect"].y0, p["rect"].x0))
+                if possible_associate_y is not None and rect.y0 > possible_associate_y:
+                    associate_photo_items.append(item)
+                else:
+                    if rect.y0 < 520:
+                        main_photo_items.append(item)
 
-        missing_indexes = [
-            i for i, line in enumerate(lines)
-            if line.lower().startswith("missing since")
-        ]
+        main_photo_items = sorted(main_photo_items, key=lambda p: (p["rect"].y0, p["rect"].x0))
+        associate_photo_items = sorted(associate_photo_items, key=lambda p: (p["rect"].y0, p["rect"].x0))
+
+        missing_indexes = []
+
+        for i, line in enumerate(lines):
+            lower = line.lower()
+
+            if possible_associate_line_index is not None and i >= possible_associate_line_index:
+                break
+
+            if lower.startswith("missing since"):
+                missing_indexes.append(i)
 
         people = []
 
@@ -529,7 +635,7 @@ def extract_records_from_pdf(uploaded_file):
             next_missing_idx = (
                 missing_indexes[m_i + 1]
                 if m_i + 1 < len(missing_indexes)
-                else len(lines)
+                else (possible_associate_line_index if possible_associate_line_index is not None else len(lines))
             )
 
             segment = lines[name_idx:next_missing_idx]
@@ -567,11 +673,13 @@ def extract_records_from_pdf(uploaded_file):
                 "sex": sex,
                 "line_index": name_idx,
                 "images": [],
+                "is_associate": False,
             })
 
-        shared_note = extract_note_text(lines, people)
+        associate = parse_associate_from_lines(lines, possible_associate_line_index)
+        shared_note = extract_note_text(lines, people + ([associate] if associate else []))
 
-        if not people:
+        if not people and not associate:
             records.append({
                 "fullname": uploaded_file.name.replace(".pdf", ""),
                 "tag": "",
@@ -581,25 +689,31 @@ def extract_records_from_pdf(uploaded_file):
                 "sex": "",
                 "notes": shared_note,
                 "group_note": "",
-                "images": [p["image"] for p in photo_items],
+                "images": [p["image"] for p in main_photo_items],
                 "group_id": f"solo_{uploaded_file.name}",
                 "is_grouped": False,
+                "is_associate": False,
             })
             continue
 
         if len(people) == 1:
-            people[0]["images"] = [p["image"] for p in photo_items]
+            people[0]["images"] = [p["image"] for p in main_photo_items]
         else:
             people = sorted(people, key=lambda p: p["line_index"])
 
-            for idx, photo in enumerate(photo_items):
+            for idx, photo in enumerate(main_photo_items):
                 if idx < len(people):
                     people[idx]["images"].append(photo["image"])
 
-        is_group = len(people) > 1
+        if associate:
+            associate["images"] = [p["image"] for p in associate_photo_items[:1]]
+
+        is_group = len(people) > 1 or associate is not None
         group_id = f"group_{ncmec_id or uploaded_file.name}" if is_group else ""
 
-        for person in people:
+        final_people = people + ([associate] if associate else [])
+
+        for person in final_people:
             records.append({
                 "fullname": person["fullname"],
                 "tag": person["tag"],
@@ -612,34 +726,45 @@ def extract_records_from_pdf(uploaded_file):
                 "images": person["images"],
                 "group_id": group_id if is_group else f"solo_{uploaded_file.name}_{person['fullname']}",
                 "is_grouped": is_group,
+                "is_associate": person.get("is_associate", False),
             })
 
     return records
 
 
 def measure_pdf_card_text_height(record, draw, fonts):
-    name_font, meta_font, note_font, mini_font = fonts
+    name_font, meta_font, note_font, mini_font, associate_font = fonts
 
     h = 8
 
     if len(record.get("images", [])) >= 2:
         h += 14
 
-    name_lines = wrap_text(draw, val(record.get("fullname", "")), name_font, 260)
-    h += len(name_lines) * 21 + 3
+    if record.get("is_associate"):
+        h += 16
 
-    for key in ["tag", "missing_since", "location"]:
-        if val(record.get(key, "")):
-            h += 13
+    h += len(wrap_text(draw, val(record.get("fullname", "")), name_font, PDF_CARD_WIDTH)) * 21 + 3
 
-    if val(record.get("age", "")) or val(record.get("sex", "")):
+    tag = val(record.get("tag", ""))
+    missing = val(record.get("missing_since", ""))
+    location = val(record.get("location", ""))
+    age = val(record.get("age", ""))
+    sex = val(record.get("sex", ""))
+
+    if tag:
+        h += 13
+    if missing:
+        h += 13
+    if location:
+        h += 13
+    if age or sex:
         h += 13
 
     notes = val(record.get("notes", ""))
 
     if notes:
         h += PERSON_NOTE_GAP
-        h += len(wrap_text(draw, notes, note_font, 260)) * PERSON_NOTE_LINE_HEIGHT
+        h += len(wrap_text(draw, notes, note_font, PDF_CARD_WIDTH)) * PERSON_NOTE_LINE_HEIGHT
 
     return h
 
@@ -649,31 +774,29 @@ def paste_pdf_person_images(poster, record, x, y):
 
     if len(images) >= 2:
         gap = 4
-        half_w = (260 - gap) // 2
+        half_w = (PDF_CARD_WIDTH - gap) // 2
 
-        img1 = crop_fill_image(images[0], (half_w, 185))
-        img2 = crop_fill_image(images[1], (half_w, 185))
+        img1 = crop_fill_image(images[0], (half_w, PDF_IMAGE_HEIGHT))
+        img2 = crop_fill_image(images[1], (half_w, PDF_IMAGE_HEIGHT))
 
         poster.paste(img1, (x, y))
         poster.paste(img2, (x + half_w + gap, y))
 
     elif len(images) == 1:
-        img = crop_fill_image(images[0], (260, 185))
+        img = crop_fill_image(images[0], (PDF_CARD_WIDTH, PDF_IMAGE_HEIGHT))
         poster.paste(img, (x, y))
 
 
 def render_pdf_poster(records, cards_per_row):
-    CARD_WIDTH = 260
-    IMAGE_HEIGHT = 185
-
     title_font = load_font(int(title_size * text_scale))
     name_font = load_font(int(18 * text_scale))
     meta_font = load_font(int(11 * text_scale))
     note_font = load_font(int(10 * text_scale))
     group_note_font = load_font(int(12 * text_scale))
     mini_font = load_font(int(8 * text_scale))
+    associate_font = load_font(int(11 * text_scale))
 
-    poster_width = cards_per_row * CARD_WIDTH + (cards_per_row + 1) * PDF_PADDING_X
+    poster_width = cards_per_row * PDF_CARD_WIDTH + (cards_per_row + 1) * PDF_PADDING_X
 
     dummy_img = Image.new("RGB", (poster_width, 100), "white")
     dummy_draw = ImageDraw.Draw(dummy_img)
@@ -691,7 +814,7 @@ def render_pdf_poster(records, cards_per_row):
         row = i // cards_per_row
         col = i % cards_per_row
 
-        x = PDF_PADDING_X + col * (CARD_WIDTH + PDF_PADDING_X)
+        x = PDF_PADDING_X + col * (PDF_CARD_WIDTH + PDF_PADDING_X)
 
         row_for_index[i] = row
         positions[i] = {"x": x, "row": row}
@@ -699,7 +822,11 @@ def render_pdf_poster(records, cards_per_row):
     num_rows = (len(records) + cards_per_row - 1) // cards_per_row
 
     card_text_heights = [
-        measure_pdf_card_text_height(record, dummy_draw, (name_font, meta_font, note_font, mini_font))
+        measure_pdf_card_text_height(
+            record,
+            dummy_draw,
+            (name_font, meta_font, note_font, mini_font, associate_font)
+        )
         for record in records
     ]
 
@@ -707,7 +834,7 @@ def render_pdf_poster(records, cards_per_row):
 
     for i, h in enumerate(card_text_heights):
         row = row_for_index[i]
-        row_card_heights[row] = max(row_card_heights[row], IMAGE_HEIGHT + h)
+        row_card_heights[row] = max(row_card_heights[row], PDF_IMAGE_HEIGHT + h)
 
     row_extra_group_note = [0] * num_rows
 
@@ -722,7 +849,7 @@ def render_pdf_poster(records, cards_per_row):
             row_indexes = rows[final_row]
 
             x1 = min(positions[i]["x"] for i in row_indexes) - GROUP_PAD
-            x2 = max(positions[i]["x"] + CARD_WIDTH for i in row_indexes) + GROUP_PAD
+            x2 = max(positions[i]["x"] + PDF_CARD_WIDTH for i in row_indexes) + GROUP_PAD
 
             note = val(records[indexes[0]].get("group_note", ""))
 
@@ -769,14 +896,14 @@ def render_pdf_poster(records, cards_per_row):
 
         paste_pdf_person_images(poster, record, x, y)
 
-        text_y = y + IMAGE_HEIGHT + 4
+        text_y = y + PDF_IMAGE_HEIGHT + 4
 
         if len(record.get("images", [])) >= 2:
             mini = "– Both photos are of the same person –"
             mini_w = draw.textlength(mini, font=mini_font)
 
             draw.text(
-                (x + (CARD_WIDTH - mini_w) / 2, text_y),
+                (x + (PDF_CARD_WIDTH - mini_w) / 2, text_y),
                 mini,
                 fill=note_colour,
                 font=mini_font
@@ -784,11 +911,24 @@ def render_pdf_poster(records, cards_per_row):
 
             text_y += 14
 
-        for line in wrap_text(draw, val(record.get("fullname", "")), name_font, CARD_WIDTH):
+        if record.get("is_associate"):
+            label = "Possible associate"
+            label_w = draw.textlength(label, font=associate_font)
+
+            draw.text(
+                (x + (PDF_CARD_WIDTH - label_w) / 2, text_y),
+                label,
+                fill=group_box_colour,
+                font=associate_font
+            )
+
+            text_y += 16
+
+        for line in wrap_text(draw, val(record.get("fullname", "")), name_font, PDF_CARD_WIDTH):
             line_w = draw.textlength(line, font=name_font)
 
             draw.text(
-                (x + (CARD_WIDTH - line_w) / 2, text_y),
+                (x + (PDF_CARD_WIDTH - line_w) / 2, text_y),
                 line,
                 fill=body_colour,
                 font=name_font
@@ -825,7 +965,7 @@ def render_pdf_poster(records, cards_per_row):
             field_w = draw.textlength(field, font=meta_font)
 
             draw.text(
-                (x + (CARD_WIDTH - field_w) / 2, text_y),
+                (x + (PDF_CARD_WIDTH - field_w) / 2, text_y),
                 field,
                 fill=body_colour,
                 font=meta_font
@@ -838,11 +978,11 @@ def render_pdf_poster(records, cards_per_row):
         if notes:
             text_y += PERSON_NOTE_GAP
 
-            for line in wrap_text(draw, notes, note_font, CARD_WIDTH):
+            for line in wrap_text(draw, notes, note_font, PDF_CARD_WIDTH):
                 line_w = draw.textlength(line, font=note_font)
 
                 draw.text(
-                    (x + (CARD_WIDTH - line_w) / 2, text_y),
+                    (x + (PDF_CARD_WIDTH - line_w) / 2, text_y),
                     line,
                     fill=body_colour,
                     font=note_font
@@ -862,7 +1002,7 @@ def render_pdf_poster(records, cards_per_row):
 
         for row, row_indexes in rows.items():
             x1 = min(positions[i]["x"] for i in row_indexes) - GROUP_PAD
-            x2 = max(positions[i]["x"] + CARD_WIDTH for i in row_indexes) + GROUP_PAD
+            x2 = max(positions[i]["x"] + PDF_CARD_WIDTH for i in row_indexes) + GROUP_PAD
             y1 = row_y[row] - GROUP_PAD
 
             content_bottom = max(card_bottoms[i] for i in row_indexes)
@@ -908,8 +1048,6 @@ def render_pdf_poster(records, cards_per_row):
 # CSV TAB
 # -----------------------
 
-csv_preview = None
-
 with csv_tab:
     st.subheader("Create from CSV + Images")
 
@@ -924,6 +1062,8 @@ with csv_tab:
     )
 
     csv_generate = st.button("Generate CSV Poster", key="csv_generate")
+
+    csv_preview = None
 
     if csv_file and image_files:
         df = pd.read_csv(csv_file)
@@ -974,8 +1114,6 @@ with csv_tab:
 # PDF TAB
 # -----------------------
 
-pdf_preview = None
-
 with pdf_tab:
     st.subheader("Create from PDFs")
 
@@ -990,6 +1128,7 @@ with pdf_tab:
 
     pdf_generate = st.button("Generate PDF Poster", key="pdf_generate")
 
+    pdf_preview = None
     records = []
 
     if pdf_files:
@@ -1046,7 +1185,7 @@ with help_tab:
     st.markdown("""
 ## 📘 How to use this tool
 
-This tool now has two poster creation modes:
+This tool has two poster creation modes.
 
 ### 1. CSV + Images
 Use this when you already have structured data and image files.
@@ -1058,7 +1197,7 @@ Use this when you have NCMEC-style PDFs and want the system to extract the text 
 
 ## 📄 CSV required fields
 
-Each row represents one person.
+Each row represents ONE person.
 
 Required fields:
 - filename → image filename
@@ -1083,8 +1222,9 @@ PDF mode automatically detects:
 - Sex
 - Notes
 - Person photos
+- Possible associate sections
 
-Grouped PDFs are boxed together where relevant.
+If a PDF contains “Possible Associate”, the missing person and associate are grouped together with one shared note.
 
 ---
 
@@ -1092,6 +1232,7 @@ Grouped PDFs are boxed together where relevant.
 
 - CSV filenames must match uploaded images exactly
 - PDF mode is tuned for NCMEC-style PDFs
+- Police, sheriff, office and contact details are filtered out
 - Upload up to 40 PDFs at a time
 """)
 
