@@ -216,13 +216,42 @@ def render(df, images_dict):
 
         text_y       = y + CARD_IMG_HEIGHT + 8
         max_text_bot = y + CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT
+        wide         = card_w > CARD_IMG_WIDTH  # True for two-photo cards
+
+        def draw_line_centred(text, font, line_h):
+            """Draw text centred across the full card width."""
+            nonlocal text_y
+            if text_y + line_h > max_text_bot:
+                return False
+            tw = draw.textlength(text, font=font)
+            tx = x + (card_w - tw) // 2
+            draw.text((tx, text_y), text, fill=body_colour, font=font)
+            text_y += line_h
+            return True
+
+        def draw_line_left(text, font, line_h):
+            """Draw text left-aligned."""
+            nonlocal text_y
+            if text_y + line_h > max_text_bot:
+                return False
+            draw.text((x, text_y), text, fill=body_colour, font=font)
+            text_y += line_h
+            return True
+
+        draw_line = draw_line_centred if wide else draw_line_left
+
+        # For two-photo cards, add a clear banner so viewers know it's one person
+        if wide:
+            banner = "— Both photos are of the same person —"
+            bw = draw.textlength(banner, font=meta_font)
+            bx = x + (card_w - bw) // 2
+            draw.text((bx, text_y), banner, fill="#888888", font=meta_font)
+            text_y += 20
 
         # Name
         for line in wrap_text(draw, row["fullname"], name_font, card_w):
-            if text_y + 26 > max_text_bot:
+            if not draw_line(line, name_font, 26):
                 break
-            draw.text((x, text_y), line, fill=body_colour, font=name_font)
-            text_y += 26
 
         text_y += 6
 
@@ -232,18 +261,14 @@ def render(df, images_dict):
             f"Location: {row['location']}",
             f"Age: {row['age']} | Sex: {row['sex']}",
         ]:
-            if text_y + 18 > max_text_bot:
+            if not draw_line(label, meta_font, 18):
                 break
-            draw.text((x, text_y), label, fill=body_colour, font=meta_font)
-            text_y += 18
 
         notes = str(row.get("notes", "")).strip()
         if notes and notes.lower() != "nan":
             for line in wrap_text(draw, notes, meta_font, card_w):
-                if text_y + 16 > max_text_bot:
+                if not draw_line(line, meta_font, 16):
                     break
-                draw.text((x, text_y), line, fill=body_colour, font=meta_font)
-                text_y += 16
 
     return poster
 
