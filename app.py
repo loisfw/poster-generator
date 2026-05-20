@@ -103,100 +103,144 @@ with tab1:
     generate = st.button("Generate Poster")
 
 # -----------------------
-# RENDER ENGINE (SAFE)
+# HELPERS
+# -----------------------
+
+def is_wide_image(img):
+    """True if image is significantly wider than a portrait card (i.e. two photos stitched)."""
+    src_ratio = img.size[0] / img.size[1]
+    card_ratio = CARD_IMG_WIDTH / CARD_IMG_HEIGHT
+    return src_ratio > card_ratio + 0.2
+
+
+def place_image(poster, img, x, y, card_w):
+    """
+    Paste img into the poster at (x, y) fitting exactly card_w x CARD_IMG_HEIGHT.
+    - Wide images (two photos): scale to fit height, both faces fully visible,
+      centred on white background.
+    - Portrait/square: scale to fill, centre-crop (no distortion).
+    """
+    src_w, src_h = img.size
+
+    if is_wide_image(img):
+        # Scale so height matches card height exactly — width may be less than card_w
+        scale = CARD_IMG_HEIGHT / src_h
+        scaled_w = int(src_w * scale)
+        scaled_h = CARD_IMG_HEIGHT
+        img_resized = img.resize((scaled_w, scaled_h), Image.LANCZOS)
+        # Place on white background, centred horizontally
+        card = Image.new("RGB", (card_w, CARD_IMG_HEIGHT), "white")
+        paste_x = (card_w - scaled_w) // 2
+        card.paste(img_resized, (paste_x, 0))
+        poster.paste(card, (x, y))
+    else:
+        # Scale to fill card, centre-crop — no distortion
+        scale = max(card_w / src_w, CARD_IMG_HEIGHT / src_h)
+        scaled_w = int(src_w * scale)
+        scaled_h = int(src_h * scale)
+        img_resized = img.resize((scaled_w, scaled_h), Image.LANCZOS)
+        crop_x = (scaled_w - card_w) // 2
+        crop_y = (scaled_h - CARD_IMG_HEIGHT) // 2
+        img_cropped = img_resized.crop((crop_x, crop_y, crop_x + card_w, crop_y + CARD_IMG_HEIGHT))
+        poster.paste(img_cropped, (x, y))
+
+
+# -----------------------
+# RENDER ENGINE
 # -----------------------
 
 def render(df, images_dict):
 
-    rows = (len(df) + COLS - 1) // COLS
-
-    width = COLS * (CARD_IMG_WIDTH + PADDING) + PADDING
-    height = rows * (CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT + PADDING) + 500
-
-    poster = Image.new("RGB", (width, height), "white")
-    draw = ImageDraw.Draw(poster)
-
     title_font = load_font(int(title_size * text_scale))
-    name_font = load_font(int(26 * text_scale))
-    meta_font = load_font(int(16 * text_scale))
+    name_font  = load_font(int(26 * text_scale))
+    meta_font  = load_font(int(16 * text_scale))
 
+    # ------------------------------------------------------------------
+    # PASS 1: work out card width and x position for every entry.
+    # Two-photo cards get double width (2 * CARD_IMG_WIDTH + PADDING)
+    # so both faces are always fully visible.
+    # We lay cards out row by row, never exceeding the poster width.
+    # ------------------------------------------------------------------
+
+    poster_width = COLS * (CARD_IMG_WIDTH + PADDING) + PADDING
+
+    card_widths = []
+    for _, row in df.iterrows():
+        filename = str(row["filename"]).lower().strip()
+        img = images_dict.get(filename)
+        if img and is_wide_image(img):
+            card_widths.append(CARD_IMG_WIDTH * 2 + PADDING)  # double-wide
+        else:
+            card_widths.append(CARD_IMG_WIDTH)
+
+    # Layout: pack cards left-to-right; start new row when full
     y_offset = 40
-
     if show_title:
-        w = draw.textlength(title_text, font=title_font)
-        draw.text(((width - w) / 2, y_offset), title_text, fill=title_colour, font=title_font)
         y_offset += 120
 
-    positions = {}
+    positions  = []   # (x, y, card_w) per entry
+    row_x      = PADDING
+    row_y      = y_offset + PADDING
+    row_height = CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT + PADDING
 
-    for i in range(len(df)):
-        col = i % COLS
-        row = i // COLS
+    for card_w in card_widths:
+        # If this card doesn't fit on the current row, wrap
+        if row_x + card_w > poster_width - PADDING and row_x > PADDING:
+            row_x  = PADDING
+            row_y += row_height
 
-        x = PADDING + col * (CARD_IMG_WIDTH + PADDING)
-        y = y_offset + PADDING + row * (CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT + PADDING)
+        positions.append((row_x, row_y, card_w))
+        row_x += card_w + PADDING
 
-        positions[i] = (x, y)
+    total_rows = (row_y - (y_offset + PADDING)) // row_height + 1
+    poster_height = y_offset + PADDING + total_rows * row_height + 200
 
-    for i, row in df.iterrows():
+    poster = Image.new("RGB", (poster_width, poster_height), "white")
+    draw   = ImageDraw.Draw(poster)
 
-        x, y = positions[i]
+    # Title
+    if show_title:
+        w = draw.textlength(title_text, font=title_font)
+        draw.text(((poster_width - w) / 2, 40), title_text, fill=title_colour, font=title_font)
 
+    # ------------------------------------------------------------------
+    # PASS 2: draw each card
+    # ------------------------------------------------------------------
+
+    for i, (_, row) in enumerate(df.iterrows()):
+        x, y, card_w = positions[i]
         filename = str(row["filename"]).lower().strip()
 
         if filename in images_dict:
-            img = images_dict[filename]
-            src_w, src_h = img.size
-            src_ratio = src_w / src_h
-            card_ratio = CARD_IMG_WIDTH / CARD_IMG_HEIGHT
+            place_image(poster, images_dict[filename], x, y, card_w)
 
-            if src_ratio > card_ratio + 0.2:
-                # Wide image (two photos stitched): scale to fit height, centre on white background
-                scale = CARD_IMG_HEIGHT / src_h
-                scaled_w = int(src_w * scale)
-                img = img.resize((scaled_w, CARD_IMG_HEIGHT), Image.LANCZOS)
-                card = Image.new("RGB", (CARD_IMG_WIDTH, CARD_IMG_HEIGHT), "white")
-                paste_x = (CARD_IMG_WIDTH - scaled_w) // 2
-                card.paste(img, (paste_x, 0))
-                poster.paste(card, (x, y))
-            else:
-                # Portrait / square: scale to fill, centre-crop
-                scale = max(CARD_IMG_WIDTH / src_w, CARD_IMG_HEIGHT / src_h)
-                scaled_w = int(src_w * scale)
-                scaled_h = int(src_h * scale)
-                img = img.resize((scaled_w, scaled_h), Image.LANCZOS)
-                crop_x = (scaled_w - CARD_IMG_WIDTH) // 2
-                crop_y = (scaled_h - CARD_IMG_HEIGHT) // 2
-                img = img.crop((crop_x, crop_y, crop_x + CARD_IMG_WIDTH, crop_y + CARD_IMG_HEIGHT))
-                poster.paste(img, (x, y))
+        text_y       = y + CARD_IMG_HEIGHT + 8
+        max_text_bot = y + CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT
 
-        text_y = y + CARD_IMG_HEIGHT + 8
-
-        # NAME
-        for line in wrap_text(draw, row["fullname"], name_font, CARD_IMG_WIDTH):
+        # Name
+        for line in wrap_text(draw, row["fullname"], name_font, card_w):
+            if text_y + 26 > max_text_bot:
+                break
             draw.text((x, text_y), line, fill=body_colour, font=name_font)
             text_y += 26
 
         text_y += 6
 
-        draw.text((x, text_y), f"Tag: {row['tag']}", fill=body_colour, font=meta_font)
-        text_y += 18
+        for label in [
+            f"Tag: {row['tag']}",
+            f"Missing: {row['missing_since']}",
+            f"Location: {row['location']}",
+            f"Age: {row['age']} | Sex: {row['sex']}",
+        ]:
+            if text_y + 18 > max_text_bot:
+                break
+            draw.text((x, text_y), label, fill=body_colour, font=meta_font)
+            text_y += 18
 
-        draw.text((x, text_y), f"Missing: {row['missing_since']}", fill=body_colour, font=meta_font)
-        text_y += 18
-
-        draw.text((x, text_y), f"Location: {row['location']}", fill=body_colour, font=meta_font)
-        text_y += 18
-
-        draw.text((x, text_y), f"Age: {row['age']} | Sex: {row['sex']}", fill=body_colour, font=meta_font)
-        text_y += 18
-
-        # Notes: cap at card boundary to prevent overflow into next row
         notes = str(row.get("notes", "")).strip()
         if notes and notes.lower() != "nan":
-            max_text_bottom = y + CARD_IMG_HEIGHT + TEXT_AREA_HEIGHT
-            for line in wrap_text(draw, notes, meta_font, CARD_IMG_WIDTH):
-                if text_y + 16 > max_text_bottom:
+            for line in wrap_text(draw, notes, meta_font, card_w):
+                if text_y + 16 > max_text_bot:
                     break
                 draw.text((x, text_y), line, fill=body_colour, font=meta_font)
                 text_y += 16
@@ -268,7 +312,7 @@ with tab1:
         )
 
 # -----------------------
-# HELP TAB (RESTORED + TEMPLATE INSIDE)
+# HELP TAB
 # -----------------------
 
 with tab3:
